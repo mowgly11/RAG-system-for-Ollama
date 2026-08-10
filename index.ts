@@ -1,7 +1,7 @@
 import { Settings } from "llamaindex";
 import getDataFromURL from "./scraper/scraper";
 import { ollama, OllamaEmbedding } from "@llamaindex/ollama";
-import input from "./utils/readline";
+import input, { loader, stopLoader } from "./utils/readline";
 import { toDocument, createIndex, indexData } from "./database/indexer";
 import { env } from "./env";
 
@@ -23,16 +23,21 @@ async function main() {
 
     const quesryEngine = index.asChatEngine();
 
-    while(i < limit) {
+    while(i < limit) { // to prevent infinite loops
         i++;
 
         const query = await input("What is your question: ");
+
+        let loaderID = loader();
 
         const response = await quesryEngine.chat({
             message: String(query)
         });
 
-        console.log(response.toString());
+        stopLoader(loaderID);
+
+        console.log(response.message);
+        
         // here needs to be a process that determines what sources to get data from
     }
     
