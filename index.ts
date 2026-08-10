@@ -21,11 +21,18 @@ async function main() {
     let limit = 999;
     let i = 0;
 
+    const quesryEngine = index.asChatEngine();
+
     while(i < limit) {
         i++;
 
         const query = await input("What is your question: ");
 
+        const response = await quesryEngine.chat({
+            message: String(query)
+        });
+
+        console.log(response.toString());
         // here needs to be a process that determines what sources to get data from
     }
     
@@ -40,7 +47,7 @@ async function main() {
     
     // await indexData(index, doc);
     
-    // const quesryEngine = index.asChatEngine();
+    // 
     
     // const response = await quesryEngine.chat({
     //     message: String(query)
@@ -48,7 +55,8 @@ async function main() {
     
     // console.log(response.toString());
     
-    // process.exit(0);
 }
 
-main();
+await main();
+
+process.exit(0);

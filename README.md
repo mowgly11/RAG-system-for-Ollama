@@ -13,7 +13,7 @@ bun install
 Run the example:
 
 ```bash
-bun run index.ts
+bun run start
 ```
 
 Documentation

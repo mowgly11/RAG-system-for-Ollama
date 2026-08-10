@@ -1,23 +1,24 @@
 import { Document, VectorStoreIndex } from "llamaindex";
 import createStorageContext from "./chroma";
+import { v4 as uuid } from "uuid";
 
 export async function toDocument(text: string, url: string): Promise<Document> {
     return new Document({ text, id_: url });
 }
 
 export async function createIndex(): Promise<VectorStoreIndex> {
-    const { storageContext, dataCount } = await createStorageContext();
+    const { vectorStore, storageContext, dataCount } = await createStorageContext();
 
     let index: VectorStoreIndex;
 
     if (dataCount > 0) {
         console.log("Vector index exists, loading...");
-        index = await VectorStoreIndex.init({ storageContext });
+        index = await VectorStoreIndex.fromVectorStore(vectorStore);
     } else {
         console.log("Vector store empty, initializing...");
-        const doc = new Document({ text: "Initial master context config" });
+        const doc = await toDocument("Ignore this text", uuid());
 
-        index = await VectorStoreIndex.fromDocuments([doc]);
+        index = await VectorStoreIndex.fromDocuments([doc], { storageContext });
     }
 
     return index;

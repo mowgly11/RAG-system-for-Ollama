@@ -36,8 +36,9 @@ export default async function getDataFromURL(url: string): Promise<DataFromURL> 
     }
 
     let dataStore: string[] = [];
-    const $ = load(data);
 
+    const $ = load(data);
+    // the kind of data being extracted
     $("p").each((_, el) => {
         dataStore.push($(el).text())
     });

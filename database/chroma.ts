@@ -9,5 +9,5 @@ export default async function createStorageContext() {
 
     const storageContext = await storageContextFromDefaults({ vectorStore });
 
-    return {storageContext, dataCount};
+    return {vectorStore, storageContext, dataCount};
 }

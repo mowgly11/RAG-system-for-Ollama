@@ -13,7 +13,7 @@ bun install
 Run the example
 
 ```bash
-bun run index.ts
+bun run start
 ```
 
 Notes about configuration
@@ -25,4 +25,4 @@ Running Ollama locally
 
 Troubleshooting
 - If the scraper fails to extract content, check that the target site allows headless browsers and that the `puppeteer-real-browser` connection is successful.
-- If you see network errors connecting to Ollama, verify that `OLLAMA_HOST` is valid and not using `127.0.01` by mistake.
+- If you see network errors connecting to Ollama, verify that `OLLAMA_HOST` is valid and not using `127.0.0.1` by mistake.

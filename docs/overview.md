@@ -10,6 +10,6 @@ Quick summary
 - Scrape a URL with `scraper.ts`
 - Convert scraped text to `Document` objects and build an index with `indexer.ts`
 - Persist vectors using the Chroma vector store in `chroma.ts`
-- Query the index from `index.ts` which wires up `llamaindex` and `ollama`
+- Query the index from `index.ts`, the entry point which wires up `llamaindex` and `ollama`.
 
 See the docs folder for setup and component details.
