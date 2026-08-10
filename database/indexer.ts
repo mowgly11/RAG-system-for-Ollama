@@ -1,5 +1,4 @@
 import { Document, VectorStoreIndex } from "llamaindex";
-import storageContext from "./chroma";
 import createStorageContext from "./chroma";
 
 export async function toDocument(text: string, url: string): Promise<Document> {

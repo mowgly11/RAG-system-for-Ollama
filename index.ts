@@ -18,29 +18,37 @@ Settings.llm = ollama({
 
 async function main() {
     const index = await createIndex();
-    
-    const query = await input("What is your question: ");
-    
-    const {error, data} = await getDataFromURL('https://www.bbc.com/news/live/cj9gzgjw98xt');
-    
-    if(error) {
-        console.log("Scraper failed with error: " + error);
-        process.exit(1);
+    let limit = 999;
+    let i = 0;
+
+    while(i < limit) {
+        i++;
+
+        const query = await input("What is your question: ");
+
+        // here needs to be a process that determines what sources to get data from
     }
     
-    const doc = await toDocument(data!, "https://www.bbc.com/news/live/cj9gzgjw98xt");
+    // const {error, data} = await getDataFromURL('https://www.bbc.com/news/live/cj9gzgjw98xt');
     
-    await indexData(index, doc);
+    // if(error) {
+    //     console.log("Scraper failed with error: " + error);
+    //     process.exit(1);
+    // }
     
-    const quesryEngine = index.asChatEngine();
+    // const doc = await toDocument(data!, "https://www.bbc.com/news/live/cj9gzgjw98xt");
     
-    const response = await quesryEngine.chat({
-        message: String(query)
-    });
+    // await indexData(index, doc);
     
-    console.log(response.toString());
+    // const quesryEngine = index.asChatEngine();
     
-    process.exit(0);
+    // const response = await quesryEngine.chat({
+    //     message: String(query)
+    // });
+    
+    // console.log(response.toString());
+    
+    // process.exit(0);
 }
 
 main();
