@@ -22,4 +22,12 @@ Documentation
 - Setup and running: docs/setup.md
 - Components: docs/components.md
 
+Current structure
+
+- `index.ts`
+- `database/` for indexer and vector store setup
+- `scraper/` for web scraping
+- `utils/` for terminal input helpers
+- `env.ts` for environment validation
+
 This project was bootstrapped with `bun init`. See the `docs/` folder for more information and implementation notes.

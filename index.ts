@@ -1,17 +1,18 @@
 import { Settings } from "llamaindex";
-import getDataFromURL from "./scraper";
+import getDataFromURL from "./scraper/scraper";
 import { ollama, OllamaEmbedding } from "@llamaindex/ollama";
-import input from "./readline";
-import { toDocument, IndexData } from "./indexer";
+import input from "./utils/readline";
+import { toDocument, IndexData } from "./database/indexer";
+import { env } from "./env";
 
 Settings.llm = ollama({
-    model: "llama3.2:3b"
+    model: env.LLM
 });
 
 Settings.embedModel = new OllamaEmbedding({
-    model: "nomic-embed-text",
+    model: env.EMBEDDING_MODEL,
     config: {
-        host: "http://127.0.01:11434"
+        host: env.OLLAMA_HOST
     }
 });
 

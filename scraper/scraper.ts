@@ -1,6 +1,6 @@
 import {connect} from "puppeteer-real-browser";
 import {load} from "cheerio";
-import {type DataFromURL} from "./types/types";
+import {type DataFromURL} from "../types/types";
 
 const { browser, page } = await connect({
     headless: false,
