@@ -1,8 +1,13 @@
 import { ChromaVectorStore } from "@llamaindex/chroma";
 import { storageContextFromDefaults } from "llamaindex";
+import { env } from "../env";
 
-const vectorStore = new ChromaVectorStore({collectionName: "rag_store"});
+export default async function createStorageContext() {
+    const vectorStore = new ChromaVectorStore({collectionName: env.VECTOR_STORE_COLLECTION_NAME});
+    const collection = await vectorStore.getCollection();
+    const dataCount = await collection.count();
 
-const storageContext = await storageContextFromDefaults({ vectorStore });
+    const storageContext = await storageContextFromDefaults({ vectorStore });
 
-export default storageContext;
+    return {storageContext, dataCount};
+}

@@ -23,7 +23,7 @@ export default async function getDataFromURL(url: string): Promise<DataFromURL> 
         data: null
     }
 
-    await page.goto(url, { waitUntil: "networkidle0" });
+    await page.goto(url, { waitUntil: "networkidle2" });
 
     const data = await page.evaluate(() => {
         const content = document.querySelector("body").innerHTML;
