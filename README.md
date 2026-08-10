@@ -1,4 +1,4 @@
-# rag
+# RAG system for ollama
 
 Minimal Retrieval-Augmented Generation (RAG) prototype using `llamaindex`, Ollama embeddings, and a Chroma vector store.
 
