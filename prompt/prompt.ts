@@ -7,7 +7,7 @@ const logger = new Logger('PROMPT INJECTION', 'datetime');
 
 export default function getPrompt(type: PromptType, replace: ReplaceObject[] = []): string | null {
     try {
-        let promptPath = path.join(__dirname, 'prompt', 'prompts', `${type}.txt`)
+        let promptPath = path.join(__dirname, 'prompts', `${type}.txt`)
         let rawPrompt = fs.readFileSync(promptPath, 'utf-8');
 
         replace.forEach((rep =>
@@ -19,5 +19,4 @@ export default function getPrompt(type: PromptType, replace: ReplaceObject[] = [
         logger.error("An error has occured while trying to read the prompt file: " + err);
         return null;
     }
-
 }

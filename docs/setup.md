@@ -18,7 +18,8 @@ bun run start
 
 Notes about configuration
 - The project contains an `env.ts` file that validates environment variables with `zod`. It provides defaults for `LLM`, `EMBEDDING_MODEL`, and `OLLAMA_HOST`.
-- `index.ts` configures `Settings.llm` and `Settings.embedModel` using `ollama` and `OllamaEmbedding`. Adjust the values in `env.ts` or set environment variables as needed for your setup.
+- `index.ts` configures `Settings.llm` and `Settings.embedModel` using Ollama with temperature set to 0.7 for controlled generation. Adjust the values in `env.ts` or set environment variables as needed for your setup.
+- System prompts are loaded from `prompt/prompts/system.txt` and can be customized by editing the template file. The chat engine uses these prompts to control LLM behavior.
 
 Running Ollama locally
 - If using Ollama locally, ensure the Ollama daemon is running and reachable at the host/port used by `OLLAMA_HOST`.

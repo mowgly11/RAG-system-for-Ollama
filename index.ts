@@ -16,7 +16,7 @@ Settings.embedModel = new OllamaEmbedding({
 Settings.llm = new Ollama({
     model: env.LLM,
     options: {
-        temperature: 0.7
+        temperature: env.TEMPERATURE
     }
 });
 
