@@ -1,29 +1,47 @@
 import { Document, VectorStoreIndex } from "llamaindex";
 import createStorageContext from "./chroma";
-import { v4 as uuid } from "uuid";
+import { Logger } from "@mowgly11/node-logger-js";
 
-export async function toDocument(text: string, url: string): Promise<Document> {
-    return new Document({ text, id_: url });
+const logger = new Logger("INDEXER");
+
+function normalizeUrl(url: string): string {
+    const parsed = new URL(url);
+
+    parsed.hash = "";
+
+    parsed.searchParams.delete("utm_source");
+    parsed.searchParams.delete("utm_medium");
+    parsed.searchParams.delete("utm_campaign");
+
+    parsed.pathname = parsed.pathname.replace(/\/$/, "");
+
+    return parsed.toString();
+}
+
+export function toDocument(text: string, url: string): Document {
+    const normalizedURL = normalizeUrl(url)
+
+    return new Document({
+        text,
+        id_: normalizedURL,
+        metadata: {
+            url: normalizedURL,
+        }
+    });
 }
 
 export async function createIndex(): Promise<VectorStoreIndex> {
-    const { vectorStore, storageContext, dataCount } = await createStorageContext();
+    const { vectorStore } = await createStorageContext();
 
-    let index: VectorStoreIndex;
-
-    if (dataCount > 0) {
-        console.log("Vector index exists, loading...");
-        index = await VectorStoreIndex.fromVectorStore(vectorStore);
-    } else {
-        console.log("Vector store empty, initializing...");
-        const doc = await toDocument("Ignore this text", uuid());
-
-        index = await VectorStoreIndex.fromDocuments([doc], { storageContext });
-    }
-
-    return index;
+    return await VectorStoreIndex.fromVectorStore(vectorStore);
 }
 
 export async function indexData(index: VectorStoreIndex, document: Document): Promise<void> {
+    const existingHash = await index.docStore.getDocumentHash(document.id_);
+
+    if (existingHash === document.hash) return logger.info(`Skipping unchanged document: ${document.id_}`);
+
+    if (existingHash) await index.deleteRefDoc(document.id_, true);
+
     await index.insert(document);
 }

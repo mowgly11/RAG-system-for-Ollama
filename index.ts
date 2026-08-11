@@ -13,12 +13,17 @@ Settings.embedModel = new OllamaEmbedding({
     }
 });
 
-Settings.llm = new Ollama({
+const llm = new Ollama({
     model: env.LLM,
     options: {
-        temperature: env.TEMPERATURE
+        temperature: env.TEMPERATURE,
+        num_ctx: 32768
     }
 });
+
+llm.metadata.contextWindow = 32768;
+
+Settings.llm = llm;
 
 async function main() {
     const index = await createIndex();
@@ -30,13 +35,13 @@ async function main() {
         systemPrompt: getPrompt('system') ?? ""
     });
 
-    while(count < limit) { // to prevent infinite loops
+    while (count < limit) { // to prevent infinite loops
         count++;
 
         const query = await input("What is your question: ");
-        
+
         let loaderID = loader();
-        
+
         // here needs to be a process that determines what sources to get data from
         /**
          * first we should modify the system prompt in order to force the LLM to use tools such as search
@@ -53,7 +58,7 @@ async function main() {
         stopLoader(loaderID);
 
         console.log(response.message.content);
-        
+
     }
 }
 
