@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
-import type { PromptType, ReplaceObject } from '../types/types';
+import type { FunctionResponse, PromptType, ReplaceObject } from '../types/types';
 import { Logger } from "@mowgly11/node-logger-js";
 import ollama from "ollama";
 import { z } from 'zod';
+import returnCreator from '../utils/returnCreator';
 
 const SearchPlanSchema = z.discriminatedUnion("needsSearch", [
     z.object({
@@ -19,7 +20,7 @@ const SearchPlanSchema = z.discriminatedUnion("needsSearch", [
 
 const logger = new Logger('PROMPT INJECTION', 'datetime');
 
-export function getPrompt(type: PromptType, replace: ReplaceObject[] = []): string | null {
+export function getPrompt(type: PromptType, replace: ReplaceObject[] = []): FunctionResponse {
     try {
         let promptPath = path.join(__dirname, 'prompts', `${type}.txt`)
         let rawPrompt = fs.readFileSync(promptPath, 'utf-8');
@@ -28,25 +29,22 @@ export function getPrompt(type: PromptType, replace: ReplaceObject[] = []): stri
             rawPrompt = rawPrompt.replaceAll(rep.term, rep.replace)
         ));
 
-        return rawPrompt;
+        return returnCreator(null, rawPrompt);
     } catch (err) {
-        logger.error("An error has occured while trying to read the prompt file: " + err);
-        return null;
+        return returnCreator("An error has occured while trying to read the prompt file: " + err);
     }
 }
 
-export async function toSearchQuery(message: string): Promise<Record<string, string[] | number | boolean> | null> {
+export async function toSearchQuery(message: string): Promise<FunctionResponse> {
     try {
-        let prompt = getPrompt('query');
-
-        if (prompt == null || prompt === "") prompt = loadDefaultPrompt();
+        let { data } = getPrompt('query');
 
         const response = await ollama.chat({
             model: "llama3.2:1b",
             messages: [
                 {
                     role: "system",
-                    content: prompt
+                    content: data
                 },
                 {
                     role: "user",
@@ -63,13 +61,8 @@ export async function toSearchQuery(message: string): Promise<Record<string, str
             JSON.parse(response.message.content)
         )
 
-        return parsed;
+        return returnCreator(null, parsed);
     } catch (err) {
-        logger.error("An error has occured while trying to generate the search query: " + err);
-        return null;
+        return returnCreator("An error has occured while trying to generate the search query: " + err);
     }
-}
-
-function loadDefaultPrompt() {
-    return "Convert the user's request into 1-3 concise web search queries.";
 }

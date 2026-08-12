@@ -9,3 +9,8 @@ export type ReplaceObject = {
     term: string;
     replace: string;
 }
+
+export type FunctionResponse = {
+    error: string | null,
+    data: any
+}
