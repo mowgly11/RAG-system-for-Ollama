@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import type { FunctionResponse, PromptType, ReplaceObject } from '../types/types';
-import { Logger } from "@mowgly11/node-logger-js";
 import ollama from "ollama";
 import { z } from 'zod';
 import returnCreator from '../utils/returnCreator';
@@ -17,8 +16,6 @@ const SearchPlanSchema = z.discriminatedUnion("needsSearch", [
         queries: z.array(z.string()).min(1).max(8)
     })
 ]);
-
-const logger = new Logger('PROMPT INJECTION', 'datetime');
 
 export function getPrompt(type: PromptType, replace: ReplaceObject[] = []): FunctionResponse {
     try {
