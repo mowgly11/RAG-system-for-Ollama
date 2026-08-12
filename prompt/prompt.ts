@@ -5,12 +5,17 @@ import { Logger } from "@mowgly11/node-logger-js";
 import ollama from "ollama";
 import { z } from 'zod';
 
-const SearchQueriesSchema = z.object({
-    queries: z
-        .array(z.string())
-        .min(1)
-        .max(10)
-});
+const SearchPlanSchema = z.discriminatedUnion("needsSearch", [
+    z.object({
+        needsSearch: z.literal(false),
+        queries: z.array(z.string()).max(0)
+    }),
+
+    z.object({
+        needsSearch: z.literal(true),
+        queries: z.array(z.string()).min(1).max(8)
+    })
+]);
 
 const logger = new Logger('PROMPT INJECTION', 'datetime');
 
@@ -30,7 +35,7 @@ export function getPrompt(type: PromptType, replace: ReplaceObject[] = []): stri
     }
 }
 
-export async function toSearchQuery(message: string): Promise<Record<string, string[]> | null> {
+export async function toSearchQuery(message: string): Promise<Record<string, string[] | number | boolean> | null> {
     try {
         let prompt = getPrompt('query');
 
@@ -51,10 +56,10 @@ export async function toSearchQuery(message: string): Promise<Record<string, str
             options: {
                 temperature: 0
             },
-            format: z.toJSONSchema(SearchQueriesSchema)
+            format: z.toJSONSchema(SearchPlanSchema)
         });
 
-        const parsed = SearchQueriesSchema.parse( // TODO: safe parse this later
+        const parsed = SearchPlanSchema.parse( // TODO: safe parse this later
             JSON.parse(response.message.content)
         )
 
