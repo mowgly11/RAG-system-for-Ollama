@@ -24,7 +24,7 @@ export default async function getDataFromURL(url: string): Promise<FunctionRespo
         dataStore.push($(el).text())
     });
 
-    browser.close();
+    await browser.close();
 
     return returnCreator(null, dataStore);
 }
