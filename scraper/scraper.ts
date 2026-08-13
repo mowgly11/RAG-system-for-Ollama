@@ -1,52 +1,50 @@
-import {connect} from "puppeteer-real-browser";
-import {load} from "cheerio";
-import {type DataFromURL} from "../types/types";
+import { connect } from "puppeteer-real-browser";
+import returnCreator from "../utils/returnCreator";
+import { type Page } from "puppeteer";
 
-const { browser, page } = await connect({
-    headless: false,
-    args: [
-        "--no-sandbox"
-    ],
-    customConfig: {},
-    turnstile: true,
-    connectOption: {
-        defaultViewport: {
-            height: 1024,
-            width: 1280
+class Scraper {
+    private headless: boolean;
+    constructor(headless: boolean = true) {
+        this.headless = headless;
+    }
+
+    async openBrowser() {
+        try {
+            const { browser, page } = await connect({
+                headless: this.headless,
+                args: [
+                    "--no-sandbox"
+                ],
+                customConfig: {},
+                turnstile: true,
+                connectOption: {
+                    defaultViewport: {
+                        height: 1024,
+                        width: 1280
+                    }
+                },
+            });
+
+            return returnCreator(null, { browser, page });
+        } catch (err) {
+            return returnCreator("An error has occured while trying to open the browser: " + err);
         }
-    },
-});
-
-export default async function getDataFromURL(url: string): Promise<DataFromURL> {
-    if (!url.startsWith("https://") && !url.startsWith('http://')) return {
-        error: "Invalid URL parameter",
-        data: null
     }
 
-    await page.goto(url, { waitUntil: "networkidle2" });
+    async getHTMLcontent(url: string, page: Page) {
+        if (!url.startsWith("https://") && !url.startsWith('http://')) return returnCreator("Invalid given URL");
 
-    const data = await page.evaluate(() => {
-        const content = document.querySelector("body").innerHTML;
-        return content;
-    });
+        await page.goto(url, { waitUntil: "networkidle2" });
 
-    if(!data) return {
-        error: "No data extracted from the website",
-        data: null,
+        const data = await page.evaluate(() => {
+            const content = document.querySelector("body").innerHTML;
+            return content;
+        });
+
+        if (!data) return returnCreator("No data was extracted from the website");
+
+        return returnCreator(null, data);
     }
-
-    let dataStore: string[] = [];
-
-    const $ = load(data);
-    // the kind of data being extracted
-    $("p").each((_, el) => {
-        dataStore.push($(el).text())
-    });
-
-    browser.close();
-
-    return {
-        error: null,
-        data: dataStore.join('\n')
-    };
 }
+
+export default Scraper;
