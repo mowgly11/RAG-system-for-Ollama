@@ -4,6 +4,7 @@ import type { FunctionResponse, PromptType, ReplaceObject } from '../types/types
 import ollama from "ollama";
 import { z } from 'zod';
 import returnCreator from '../utils/returnCreator';
+import { env } from '../env';
 
 const SearchPlanSchema = z.discriminatedUnion("needsSearch", [
     z.object({
@@ -37,7 +38,7 @@ export async function toSearchQuery(message: string): Promise<FunctionResponse> 
         let { data } = getPrompt('query');
 
         const response = await ollama.chat({
-            model: "llama3.2:1b",
+            model: env.QUERY_MODEL,
             messages: [
                 {
                     role: "system",
