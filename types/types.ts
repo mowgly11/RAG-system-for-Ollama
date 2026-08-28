@@ -3,7 +3,7 @@ export type DataFromURL = {
     data: string | null
 }
 
-export type PromptType = "system" | "query";
+export type PromptType = "system" | "query" | "force_query";
 
 export type ReplaceObject = {
     term: string;
