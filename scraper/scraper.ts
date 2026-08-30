@@ -1,6 +1,6 @@
 import { connect } from "puppeteer-real-browser";
 import returnCreator from "../utils/returnCreator";
-import { type Page } from "puppeteer";
+import { Browser, type Page } from "puppeteer";
 import { env } from "../env";
 import config from '../config.json';
 
@@ -36,10 +36,11 @@ class Scraper {
         }
     }
 
-    async getHTMLcontent(url: string, page: Page) {
+    async getHTMLcontent(url: string, browser: Browser) {
         if (!url.startsWith("https://") && !url.startsWith('http://')) return returnCreator("Invalid given URL");
 
-        await page.goto(url, { waitUntil: "networkidle2" });
+        const page = await browser.newPage();
+        await page.goto(url, { waitUntil: "domcontentloaded" });
 
         const data = await page.evaluate(() => {
             const content = document.querySelector("body").innerHTML;
@@ -47,6 +48,8 @@ class Scraper {
         });
 
         if (!data) return returnCreator("No data was extracted from the website");
+
+        await page.close();
 
         return returnCreator(null, data);
     }
