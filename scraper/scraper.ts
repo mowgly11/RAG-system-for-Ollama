@@ -1,6 +1,6 @@
 import { connect } from "puppeteer-real-browser";
 import returnCreator from "../utils/returnCreator";
-import { Browser, type Page } from "puppeteer";
+import { type Page } from "puppeteer";
 import { env } from "../env";
 import config from '../config.json';
 
@@ -40,10 +40,14 @@ class Scraper {
         if (!url.startsWith("https://") && !url.startsWith('http://')) return returnCreator("Invalid given URL");
 
         const page = await browser.newPage();
-        await page.goto(url, { waitUntil: "domcontentloaded" });
+        try {
+            await page.goto(url, { waitUntil: "domcontentloaded" });
+        } catch(err) {
+            return returnCreator("An error occured while trying to navigate to a url: " + err);
+        }
 
         const data = await page.evaluate(() => {
-            const content = document.querySelector("body").innerHTML;
+            const content = document.querySelector("body")?.innerHTML;
             return content;
         });
 
