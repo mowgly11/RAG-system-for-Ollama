@@ -1,5 +1,7 @@
 import { Document, VectorStoreIndex } from "llamaindex";
 import createStorageContext from "./chroma";
+import returnCreator from "../utils/returnCreator";
+import type { FunctionResponse } from "../types/types";
 
 function normalizeUrl(url: string): string {
     const parsed = new URL(url);
@@ -16,7 +18,7 @@ function normalizeUrl(url: string): string {
 }
 
 export function toDocument(text: string, url: string): Document {
-    const normalizedURL = normalizeUrl(url)
+    const normalizedURL = normalizeUrl(url);
 
     return new Document({
         text,
@@ -29,9 +31,8 @@ export function toDocument(text: string, url: string): Document {
 
 export async function createIndex(): Promise<VectorStoreIndex> {
     const { error, data } = await createStorageContext();
-    if(error) console.error(error)
+    if (error) console.error(error)
 
-    
     return await VectorStoreIndex.fromVectorStore(data.vectorStore);
 }
 
@@ -43,4 +44,17 @@ export async function indexData(index: VectorStoreIndex, document: Document): Pr
     if (existingHash) await index.deleteRefDoc(document.id_, true);
 
     await index.insert(document);
+}
+
+export async function indexDataBulk(index: VectorStoreIndex, documents: Document[]): Promise<FunctionResponse> {
+    try {
+        const results = await Promise.allSettled(documents.map(doc => indexData(index, doc))); // TODO: index all documents in bulk
+
+        const successes = results.filter(r => r.status === 'fulfilled');
+        const failures = results.filter(r => r.status === 'rejected');
+
+        return returnCreator(null, { successes: successes.length, failures: failures.length })
+    } catch (err) {
+        return returnCreator("An error has occured while trying to index documents in bulk: " + err);
+    }
 }
