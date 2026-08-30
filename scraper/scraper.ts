@@ -2,6 +2,7 @@ import { connect } from "puppeteer-real-browser";
 import returnCreator from "../utils/returnCreator";
 import { type Page } from "puppeteer";
 import { env } from "../env";
+import config from '../config.json';
 
 class Scraper {
     private headless: boolean;
@@ -11,12 +12,14 @@ class Scraper {
 
     async openBrowser() {
         try {
+            let customArgs = [
+                "--no-sandbox"
+            ];
+
+            if (config.tor_proxy_enabled) customArgs.push(`--proxy-server=${env.TOR_PROXY_URL}`)
             const { browser, page } = await connect({
                 headless: this.headless,
-                args: [
-                    "--no-sandbox",
-                    `--proxy-server=${env.TOR_PROXY_URL}`
-                ],
+                args: customArgs,
                 customConfig: {},
                 turnstile: true,
                 connectOption: {
