@@ -14,3 +14,8 @@ export type FunctionResponse = {
     error: string | null,
     data: any
 }
+
+export type RawData = {
+    url: string;
+    data: string;
+}
