@@ -1,10 +1,14 @@
 import { Settings } from "llamaindex";
-import getDataFromURL from "./scraper/scraper";
 import { Ollama, OllamaEmbedding } from "@llamaindex/ollama";
 import input, { loader, stopLoader } from "./utils/readline";
-import { toDocument, createIndex, indexData } from "./database/indexer";
+import { toDocument, createIndex, indexData, indexDataBulk } from "./database/indexer";
 import { env } from "./env";
-import getPrompt from "./prompt/prompt";
+import { getPrompt, toSearchQuery } from "./prompt/prompt";
+import executeSeachQueries from "./scraper/searchQueryScraper";
+import config from "./config.json";
+import Scraper from "./scraper/scraper";
+import getDataFromURLs from "./scraper/dataScraper";
+import type { RawData } from "./types/types";
 
 Settings.embedModel = new OllamaEmbedding({
     model: env.EMBEDDING_MODEL,
@@ -16,12 +20,12 @@ Settings.embedModel = new OllamaEmbedding({
 const llm = new Ollama({
     model: env.LLM,
     options: {
-        temperature: env.TEMPERATURE,
-        num_ctx: 32768
+        temperature: config.llm_temperature,
+        num_ctx: config.context_window_size
     }
 });
 
-llm.metadata.contextWindow = 32768;
+llm.metadata.contextWindow = config.context_window_size;
 
 Settings.llm = llm;
 
@@ -32,15 +36,31 @@ async function main() {
 
     const chatEngine = index.asChatEngine({
         similarityTopK: 5,
-        systemPrompt: getPrompt('system') ?? ""
+        systemPrompt: getPrompt('system').data ?? ""
     });
 
     while (count < limit) { // to prevent infinite loops
         count++;
 
-        const query = await input("What is your question: ");
+        const query = await input("What is your question: ") as string;
 
         let loaderID = loader();
+
+        const { error, data } = await toSearchQuery(query);
+
+        if (error) return console.error(error);
+
+        if (data.needsSearch && data.queries.length > 0) {
+            const pages = await executeSeachQueries(data.queries);
+            const pagesData = await getDataFromURLs(pages.data);
+
+            const indexingResults = await indexDataBulk(
+                index,
+                pagesData.data.map((page: RawData) =>
+                    toDocument(page.data, page.url)
+                )
+            );
+        }
 
         // here needs to be a process that determines what sources to get data from
         /**
@@ -51,6 +71,7 @@ async function main() {
          * data is retreived and the pages are scraped
          * then all data is saved to chroma and the LLM is prompted to continue the request
          */
+
         const response = await chatEngine.chat({
             message: String(query)
         });
@@ -58,7 +79,6 @@ async function main() {
         stopLoader(loaderID);
 
         console.log(response.message.content);
-
     }
 }
 
