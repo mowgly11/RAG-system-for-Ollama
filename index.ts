@@ -9,6 +9,7 @@ import config from "./config.json";
 import Scraper from "./scraper/scraper";
 import getDataFromURLs from "./scraper/dataScraper";
 import type { RawData } from "./types/types";
+import connectMongoDB from "./database/mongodb";
 
 Settings.embedModel = new OllamaEmbedding({
     model: env.EMBEDDING_MODEL,
@@ -30,12 +31,13 @@ llm.metadata.contextWindow = config.context_window_size;
 Settings.llm = llm;
 
 async function main() {
+    await connectMongoDB();
     const index = await createIndex();
     let limit = 999;
     let count = 0;
 
     const chatEngine = index.asChatEngine({
-        similarityTopK: 5,
+        similarityTopK: config.similarity_topk,
         systemPrompt: getPrompt('system').data ?? ""
     });
 
