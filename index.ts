@@ -1,7 +1,7 @@
 import { Settings } from "llamaindex";
 import { Ollama, OllamaEmbedding } from "@llamaindex/ollama";
 import input, { loader, stopLoader } from "./utils/readline";
-import { toDocument, createIndex, indexData, indexDataBulk } from "./database/indexer";
+import { toDocument, createIndex, indexData, indexDataBulk } from "./database/chroma/indexer";
 import { env } from "./env";
 import { getPrompt, toSearchQuery } from "./prompt/prompt";
 import executeSeachQueries from "./scraper/searchQueryScraper";
@@ -9,7 +9,7 @@ import config from "./config.json";
 import Scraper from "./scraper/scraper";
 import getDataFromURLs from "./scraper/dataScraper";
 import type { RawData } from "./types/types";
-import connectMongoDB from "./database/mongodb";
+import connectMongoDB from "./database/mongodb/mongodb";
 
 Settings.embedModel = new OllamaEmbedding({
     model: env.EMBEDDING_MODEL,

@@ -1,7 +1,7 @@
 import { Document, VectorStoreIndex } from "llamaindex";
 import createStorageContext from "./chroma";
-import returnCreator from "../utils/returnCreator";
-import type { FunctionResponse } from "../types/types";
+import returnCreator from "../../utils/returnCreator";
+import type { FunctionResponse } from "../../types/types";
 
 function normalizeUrl(url: string): string {
     const parsed = new URL(url);

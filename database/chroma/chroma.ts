@@ -1,8 +1,8 @@
 import { ChromaVectorStore } from "@llamaindex/chroma";
 import { storageContextFromDefaults } from "llamaindex";
-import { env } from "../env";
-import returnCreator from "../utils/returnCreator";
-import { type FunctionResponse } from "../types/types";
+import { env } from "../../env";
+import returnCreator from "../../utils/returnCreator";
+import { type FunctionResponse } from "../../types/types";
 
 export default async function createStorageContext(): Promise<FunctionResponse> {
     try {

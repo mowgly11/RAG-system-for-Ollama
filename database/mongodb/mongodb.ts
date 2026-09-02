@@ -1,5 +1,5 @@
 import { connect, connection } from "mongoose";
-import { env } from "../env";
+import { env } from "../../env";
 
 export default async function connectMongoDB() {
     await connect(env.MONGODB_CONNECT);
