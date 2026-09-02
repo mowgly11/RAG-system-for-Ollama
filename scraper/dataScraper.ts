@@ -10,12 +10,12 @@ export default async function getDataFromURLs(urls: string[]): Promise<FunctionR
 
     if (error) return returnCreator(error);
 
-    const { browser } = data;
+    const { browser, page } = data;
 
     let dataStore: RawData[] = [];
 
     for (const url of urls) {
-        const pageHTML = await scraper.getHTMLcontent(url, browser);
+        const pageHTML = await scraper.getHTMLcontent(url, page);
 
         if (pageHTML.error) {
             console.log(pageHTML.error);

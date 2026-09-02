@@ -12,13 +12,13 @@ export default async function executeSeachQueries(queries: string[]): Promise<Fu
 
     if (error) return returnCreator(error);
 
-    const { browser } = data;
+    const { browser, page } = data;
 
     let relevantURLs = new Set();
     for (const query of queries) {
         const targetURL = `${BASE_URL}${encodeURIComponent(query)}`;
 
-        const pageHTML = await scraper.getHTMLcontent(targetURL, browser);
+        const pageHTML = await scraper.getHTMLcontent(targetURL, page);
 
         if (pageHTML.error) {
             console.error("there was an error while trying to access " + targetURL);
