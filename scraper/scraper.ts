@@ -36,10 +36,9 @@ class Scraper {
         }
     }
 
-    async getHTMLcontent(url: string, browser: Browser) {
+    async getHTMLcontent(url: string, page: Page) {
         if (!url.startsWith("https://") && !url.startsWith('http://')) return returnCreator("Invalid given URL");
 
-        const page = await browser.newPage();
         try {
             await page.goto(url, { waitUntil: "domcontentloaded" });
         } catch(err) {
@@ -52,8 +51,6 @@ class Scraper {
         });
 
         if (!data) return returnCreator("No data was extracted from the website");
-
-        await page.close();
 
         return returnCreator(null, data);
     }

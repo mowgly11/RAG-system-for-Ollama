@@ -33,6 +33,7 @@ export async function createIndex(): Promise<VectorStoreIndex> {
     const { error, data } = await createStorageContext();
     if (error) console.error(error)
 
+    console.log("Connected to chroma instance")
     return await VectorStoreIndex.fromVectorStore(data.vectorStore);
 }
 
