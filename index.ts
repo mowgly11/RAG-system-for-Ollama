@@ -10,6 +10,7 @@ import getDataFromURLs from "./scraper/dataScraper";
 import { withBrowser } from "./scraper/scraper";
 import type { ChatHistoryMessage, ConversationSummary } from "./types/types";
 import connectMongoDB from "./database/mongodb/mongodb";
+import { debugEnabled, debugStep, debugTurn, debugTurnEnd } from "./utils/debug";
 import { createConversation, listConversations, loadHistory, saveMessage } from "./database/mongodb/conversations";
 
 const CONVERSATION_LIST_LIMIT = 10;
@@ -154,19 +155,29 @@ async function gatherSources(bundle: IndexBundle, queries: string[]): Promise<st
     );
 
     if (!indexed.ok) console.error(indexed.error);
-    else if (indexed.data.failures > 0) console.error(`${indexed.data.failures} pages could not be indexed`);
+    else {
+        debugStep("indexing finished", { indexed: indexed.data.successes, failed: indexed.data.failures });
+
+        if (indexed.data.failures > 0) console.error(`${indexed.data.failures} pages could not be indexed`);
+    }
 
     return gathered.data.map(page => page.url);
 }
 
 async function main() {
+    debugTurn("startup");
+
     await connectMongoDB();
+
+    debugStep("mongodb connected", { uri: env.MONGODB_CONNECT });
 
     const opened = await createIndex();
 
     if (!opened.ok) return console.error(opened.error);
 
     const bundle = opened.data;
+
+    debugStep("chroma opened", { collection: env.VECTOR_STORE_COLLECTION_NAME });
 
     const systemPrompt = getPrompt('system');
 
@@ -176,11 +187,15 @@ async function main() {
 
     if (!chatID) return;
 
+    debugStep("conversation selected", { chatID });
+
     const loaded = await loadHistory(chatID);
 
     if (!loaded.ok) console.error(loaded.error);
 
     const history: ChatHistoryMessage[] = loaded.ok ? loaded.data : [];
+
+    debugTurnEnd();
 
     let turn = 0;
 
@@ -191,6 +206,9 @@ async function main() {
 
         if (query === "" || EXIT_WORDS.includes(query.toLowerCase())) break;
 
+        debugTurn(`turn ${turn}`);
+        debugStep("question received", { chars: query.length });
+
         const plan = await toSearchQuery(query);
 
         if (!plan.ok) {
@@ -199,6 +217,8 @@ async function main() {
         }
 
         const searchPerformed = plan.data.needsSearch && plan.data.queries.length > 0;
+
+        debugStep("search plan ready", { needsSearch: plan.data.needsSearch, queries: plan.data.queries.length, willSearch: searchPerformed });
 
         // the spinner only runs around the model call, because search and
         // indexing print progress of their own and the two used to collide
@@ -221,7 +241,15 @@ async function main() {
             chatHistory: [...history]
         });
 
-        const loaderID = loader();
+        debugStep("chat engine built", {
+            similarityTopK: searchPerformed ? config.similarity_topk_after_search : config.similarity_topk,
+            historyMessages: history.length
+        });
+
+        // the spinner would overwrite the debug lines, so it stands down
+        const loaderID = debugEnabled ? null : loader();
+
+        debugStep("model call started", { model: env.LLM });
 
         let answer: string;
 
@@ -235,6 +263,8 @@ async function main() {
         }
 
         stopLoader(loaderID);
+
+        debugStep("answer received", { chars: answer.length });
 
         console.log(answer);
 
@@ -251,6 +281,8 @@ async function main() {
             content: answer,
             sources
         });
+
+        debugTurnEnd();
     }
 
     console.log(`\nConversation saved. Its chat ID is ${chatID}`);

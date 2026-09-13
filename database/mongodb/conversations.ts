@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import messageModel from "./schemas/messageSchema";
 import conversationModel from "./schemas/conversationSchema";
 import returnCreator from "../../utils/returnCreator";
+import { debugStep } from "../../utils/debug";
 import config from "../../config.json";
 import type { ChatHistoryMessage, ConversationSummary, FunctionResponse, MessageRecord } from "../../types/types";
 
@@ -78,6 +79,8 @@ export async function loadHistory(chatID: string): Promise<FunctionResponse<Chat
                 content: message.content
             }));
 
+        debugStep("history loaded", { chatID, messages: history.length, cap: config.max_replayed_messages });
+
         return returnCreator(null, history);
     } catch (err) {
         return returnCreator("An error has occured while trying to load the conversation history: " + err);
@@ -110,6 +113,8 @@ export async function saveMessage(record: MessageRecord): Promise<FunctionRespon
                 { $set: { title: toTitle(record.content) } }
             );
         }
+
+        debugStep("message saved", { role: record.role, chars: record.content.length, sources: (record.sources ?? []).length });
 
         return returnCreator(null, true as const);
     } catch (err) {

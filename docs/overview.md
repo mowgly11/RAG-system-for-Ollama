@@ -36,6 +36,10 @@ If the planner decides no search is needed, steps 5 to 7 are skipped and the que
 
 Each message row carries the chat ID it belongs to, its role, its text, and the search metadata for that turn. The planner's decision and the queries it generated are stored on the user message. The URLs that grounded the answer are stored on the assistant message. That gives provenance for any answer and a record of when the planner chose to search.
 
+## Tracing a question
+
+Set `DEBUG_MODE=true` to print every step of the flow above with the time it took, from the question being read to the answer coming back. The planner, both scrapers, the indexer, the conversation store, and the main loop all report into it. See `docs/setup.md` for sample output.
+
 ## Current limitations
 
 - The browser runs headed by default, because `puppeteer-real-browser` evades bot checks better that way. Set `headless_browser` to `true` to hide it, at the cost of being blocked more often.
@@ -45,5 +49,6 @@ Each message row carries the chat ID it belongs to, its role, its text, and the 
 - Retrieval is never scoped to the current turn. Freshly indexed pages compete with everything indexed before, which widening the retrieval count after a search only partly offsets.
 - The chat loop is capped at 999 turns as a guard against runaway loops.
 - Individual page failures are logged and skipped. A planner or model failure skips the turn rather than ending the session.
+- Questions must be typed interactively. Piping a script of questions into the process does not work, because the readline interface drops lines that arrive while no prompt is pending. Reaching end of input exits cleanly rather than failing.
 
 See `docs/setup.md` to run it and `docs/components.md` for a file-by-file reference.

@@ -22,7 +22,7 @@ The chat engine is rebuilt each turn rather than once per session. That is what 
 
 ## Configuration
 
-- `env.ts`: Validates `process.env` with `zod` and exports `env`. Defines defaults for `LLM`, `QUERY_MODEL`, `EMBEDDING_MODEL`, `OLLAMA_HOST`, `VECTOR_STORE_COLLECTION_NAME`, `TOR_PROXY_URL`, and `MONGODB_CONNECT`.
+- `env.ts`: Validates `process.env` with `zod` and exports `env`. Defines defaults for `LLM`, `QUERY_MODEL`, `EMBEDDING_MODEL`, `OLLAMA_HOST`, `VECTOR_STORE_COLLECTION_NAME`, `TOR_PROXY_URL`, `MONGODB_CONNECT`, and `DEBUG_MODE`. The boolean uses `z.stringbool()` rather than `z.coerce.boolean()`, which would read the string `"false"` as true.
 - `config.json`: Tunable runtime values for the models, retrieval, and the scraper. See `docs/setup.md` for each key.
 
 ## Prompts and search planning
@@ -77,7 +77,12 @@ The planner uses its own Ollama client pointed at `OLLAMA_HOST`, rather than the
 
 ## Utilities and types
 
-- `utils/readline.ts`: `input(prompt)` resolves with one line of terminal input. `closeInput()` closes the interface on exit. `loader()` starts a spinner and `stopLoader(handle)` clears it. Both are no-ops when output is not a TTY, since `clearLine` does not exist on a piped stream. The spinner runs only around the model call, because search and indexing print progress of their own and the two used to overwrite each other.
+- `utils/debug.ts`: Step logging for the whole workflow, switched on with `DEBUG_MODE`.
+  - `debugEnabled`: read once at startup. Every function here returns immediately when it is off, so the normal path pays nothing.
+  - `debugTurn(label)`: starts a timed section and resets the step clock.
+  - `debugStep(step, detail?)`: one step, timed from the previous one. Detail values are rendered as `key=value`, with long strings and arrays truncated.
+  - `debugTurnEnd()`: closes a section with its total wall time.
+- `utils/readline.ts`: `input(prompt)` resolves with one line of terminal input, or with an empty string once input has ended. End of input is Ctrl+D, or a piped stream running out. Asking a closed interface for another line throws `ERR_USE_AFTER_CLOSE`, so this used to end in a stack trace. Callers already treat an empty line as "stop", so end of input now follows the same path. `closeInput()` closes the interface on exit. `loader()` starts a spinner and `stopLoader(handle)` clears it. Both are no-ops when output is not a TTY, since `clearLine` does not exist on a piped stream. The spinner runs only around the model call, because search and indexing print progress of their own and the two used to overwrite each other.
 - `utils/returnCreator.ts`: `returnCreator(error, data?)` builds the result union. Overloaded so a success carries a typed payload and a failure carries none.
 - `types/types.ts`:
   - `FunctionResponse<T>`, `Success<T>`, `Failure`: the result union described at the top.

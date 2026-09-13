@@ -7,7 +7,11 @@ const envSchema = z.object({
     OLLAMA_HOST: z.url().default("http://127.0.0.1:11434"),
     VECTOR_STORE_COLLECTION_NAME: z.string().default('rag_store'),
     TOR_PROXY_URL: z.string().default("socks5://127.0.0.1:9050"),
-    MONGODB_CONNECT: z.string().default("mongodb://127.0.0.1:27017/rag_system_conversations")
+    MONGODB_CONNECT: z.string().default("mongodb://127.0.0.1:27017/rag_system_conversations"),
+
+    // stringbool, not coerce.boolean: the latter turns the string "false" into
+    // true, because every non-empty string is truthy
+    DEBUG_MODE: z.stringbool().default(false)
 });
 
 const env = envSchema.parse(process.env);

@@ -4,6 +4,7 @@ import type { FunctionResponse, PromptType, ReplaceObject, SearchPlan } from '..
 import { Ollama, type ChatRequest, type Message } from "ollama";
 import { z } from 'zod';
 import returnCreator from '../utils/returnCreator';
+import { debugStep } from '../utils/debug';
 import { env } from '../env';
 import config from "../config.json";
 
@@ -85,6 +86,8 @@ export async function toSearchQuery(message: string): Promise<FunctionResponse<S
         const forced = definitelyNeedsSearch(message);
         const promptType: PromptType = forced ? 'force_query' : 'query';
 
+        debugStep("planner prompt chosen", { prompt: promptType, forced });
+
         const prompt = getPrompt(promptType);
 
         if (!prompt.ok) return returnCreator(prompt.error);
@@ -111,12 +114,18 @@ export async function toSearchQuery(message: string): Promise<FunctionResponse<S
         if (!response.ok) return returnCreator(response.error);
 
         const plan = response.data;
+
+        debugStep("planner plan parsed", { needsSearch: plan.needsSearch, queries: plan.queries });
+
         const needsSearch = forced ? true : plan.needsSearch;
         let queries = plan.queries.slice(0, MAX_QUERIES);
 
         // a forced search with no queries would silently not search, so fall
         // back to the question itself
-        if (needsSearch && queries.length === 0) queries = [message.trim()];
+        if (needsSearch && queries.length === 0) {
+            debugStep("forced search fallback", { reason: "model returned no queries" });
+            queries = [message.trim()];
+        }
 
         return returnCreator(null, { needsSearch, queries });
     } catch (err) {
@@ -135,9 +144,13 @@ async function queryModel(model: string, messages: Message[], options: ChatReque
             format: z.toJSONSchema(SearchPlanSchema)
         }
 
+        debugStep("planner model called", { model });
+
         const response = await client.chat(promptDetails);
 
         raw = response.message.content;
+
+        debugStep("planner model replied", { raw });
     } catch (err) {
         return returnCreator("The query model could not be reached: " + err);
     }

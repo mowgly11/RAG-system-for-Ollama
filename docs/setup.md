@@ -48,6 +48,29 @@ A conversation is labelled by its first question, shortened to 60 characters. Co
 
 The app then prompts `What is your question:` in a loop. Type `exit` or `quit`, or submit an empty line, to leave. The chat ID is printed on the way out. Ctrl+C also works but skips that.
 
+## Debug mode
+
+Set `DEBUG_MODE=true` to trace a question from the moment it is read to the moment the answer comes back. Each line shows the time since the previous step, so the slow stage is obvious at a glance.
+
+```
+[debug] ===== turn 1 =====
+[debug]      +0ms  question received        chars=37
+[debug]      +3ms  planner prompt chosen    prompt="force_query" forced=true
+[debug]   +7869ms  planner model called     model="llama3.2:1b"
+[debug]      +2ms  planner plan parsed      needsSearch=true queries=["Boston weather today", ...+4]
+[debug]   +1078ms  search results read      query="Boston weather today" newUrls=3 total=3
+[debug]    +370ms  page skipped             url="https://www.easeweather.com/..." reason="too short" chars=0
+[debug]    +473ms  page scraped             url="https://weather.com/..." chars=354
+[debug]     +49ms  scraping finished        requested=3 kept=2 workers=3
+[debug]    +528ms  previous chunks cleared  url="https://weather.com/..."
+[debug]   +1306ms  document indexed         url="https://weather.com/..."
+[debug]     +12ms  chat engine built        similarityTopK=12 historyMessages=4
+[debug]   +2204ms  answer received          chars=612
+[debug]     total  14.02s
+```
+
+Steps are logged from the planner, both scrapers, the indexer, the conversation store, and the main loop. Long strings and arrays are truncated so a line stays readable. The spinner is suppressed while debug mode is on, since it would overwrite these lines.
+
 ## Conversation storage
 
 Two MongoDB collections are created on first use, in the database named by `MONGODB_CONNECT`.
@@ -74,6 +97,9 @@ Variables are validated in `env.ts` with `zod`. Put them in a `.env` file at the
 | `VECTOR_STORE_COLLECTION_NAME` | `rag_store` | Chroma collection name. |
 | `TOR_PROXY_URL` | `socks5://127.0.0.1:9050` | Proxy passed to Chrome when Tor is enabled. |
 | `MONGODB_CONNECT` | `mongodb://127.0.0.1:27017/rag_system_conversations` | MongoDB connection string. |
+| `DEBUG_MODE` | `false` | Log every workflow step with timings. See below. |
+
+`DEBUG_MODE` accepts `true`, `false`, `1`, `0`, `yes`, and `no`. Anything else is rejected at startup rather than quietly treated as true.
 
 **Caveat on `OLLAMA_HOST`.** Only the embedding client is given this value. The chat LLM in `index.ts` and the planner call in `prompt/prompt.ts` use the `ollama` client default of `127.0.0.1:11434`. If your Ollama server runs elsewhere, you must also pass the host to those two clients in code.
 

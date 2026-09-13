@@ -2,6 +2,7 @@ import { Document, VectorStoreIndex } from "llamaindex";
 import type { ChromaVectorStore } from "@llamaindex/chroma";
 import createVectorStore from "./chroma";
 import returnCreator from "../../utils/returnCreator";
+import { debugStep } from "../../utils/debug";
 import config from "../../config.json";
 import type { FunctionResponse, IndexingSummary } from "../../types/types";
 
@@ -69,6 +70,8 @@ async function dropExistingChunks(vectorStore: ChromaVectorStore, url: string): 
         const collection = await vectorStore.getCollection();
 
         await collection.delete({ where: { url } });
+
+        debugStep("previous chunks cleared", { url });
     } catch (err) {
         // a failed cleanup is worth knowing about but must not block indexing
         console.error(`Could not clear previous chunks for ${url}: ${err}`);
@@ -79,6 +82,7 @@ export async function indexData(bundle: IndexBundle, document: Document): Promis
     const text = document.getText().trim();
 
     if (text.length < config.min_page_characters) {
+        debugStep("document skipped", { url: document.id_, reason: "too short" });
         console.log(`Skipping page with too little text: ${document.id_}`);
         return;
     }
@@ -88,13 +92,18 @@ export async function indexData(bundle: IndexBundle, document: Document): Promis
     // only meaningful within a single run, but it saves re-embedding a page
     // that two search queries both turned up
     if (existingHash === document.hash) {
+        debugStep("document skipped", { url: document.id_, reason: "already indexed this run" });
         console.log(`Skipping unchanged document: ${document.id_}`);
         return;
     }
 
     await dropExistingChunks(bundle.vectorStore, document.id_);
 
+    debugStep("embedding document", { url: document.id_, chars: text.length });
+
     await bundle.index.insert(document);
+
+    debugStep("document indexed", { url: document.id_ });
 }
 
 export async function indexDataBulk(bundle: IndexBundle, documents: Document[]): Promise<FunctionResponse<IndexingSummary>> {

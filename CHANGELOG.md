@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-09-13 (debug mode)
+
+### Added
+
+- **`DEBUG_MODE` environment variable.** Set it to `true` to trace a question from the moment it is read to the moment the answer comes back. Each line reports the time since the previous step, so the slow stage is obvious. In a sample run the planner alone accounted for nearly eight of fourteen seconds.
+  - `utils/debug.ts`: `debugTurn()` opens a timed section, `debugStep()` logs one step with `key=value` detail, and `debugTurnEnd()` closes with the total. Long strings and arrays are truncated so lines stay readable. Every function returns immediately when debug is off.
+  - Steps are reported from the main loop, the planner, both scrapers, the indexer, and the conversation store.
+  - The spinner is suppressed while debug mode is on, since it would overwrite the output.
+- `DEBUG_MODE` accepts `true`, `false`, `1`, `0`, `yes`, and `no`. It uses `z.stringbool()` rather than `z.coerce.boolean()`, which reads the string `"false"` as true because every non-empty string is truthy.
+
+### Fixed
+
+- **Reaching end of input crashed with a stack trace.** Asking a closed readline interface for another line throws `ERR_USE_AFTER_CLOSE`, so Ctrl+D, or a piped stream running out, ended in an unhandled error. `input()` now resolves with an empty string once input has ended, which callers already treat as "stop". Found by running the app rather than by reading it.
+- A debug step logged before any `debugTurn()` reported the whole unix epoch as its duration.
+
+### Notes
+
+- Verified end to end against live Ollama, Chroma, and MongoDB, using a throwaway collection and database that were both deleted afterwards.
+- The deduplication fix from the audit is now confirmed against a real Chroma server: indexing the same pages from a fresh index left the collection at three chunks rather than six.
+- Known limitation: questions must be typed interactively. Piping a script of questions does not work, because readline drops lines that arrive while no prompt is pending.
+
+---
+
 ## [Unreleased] - 2026-09-13 (implementation audit)
 
 An audit of the whole implementation, and the fixes it turned up.

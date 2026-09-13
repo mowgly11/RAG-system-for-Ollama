@@ -1,4 +1,5 @@
 import Scraper, { delay, type BrowserSession } from "./scraper";
+import { debugStep } from "../utils/debug";
 import config from "../config.json";
 import { load } from "cheerio";
 
@@ -40,6 +41,8 @@ export default async function executeSeachQueries(session: BrowserSession, queri
 
         if (position > 0) await delay(config.search_request_delay_ms);
 
+        debugStep("search query sent", { query });
+
         const targetURL = `${BASE_URL}${encodeURIComponent(query)}`;
 
         const pageHTML = await scraper.getHTMLcontent(targetURL, session.page);
@@ -55,6 +58,8 @@ export default async function executeSeachQueries(session: BrowserSession, queri
         // for markup changes on DuckDuckGo's side
         const anchors = $('a.result__a').length ? $('a.result__a') : $('a.result__snippet');
 
+        const before = relevantURLs.size;
+
         anchors.slice(0, config.search_results_per_query).each((_, element) => {
             const href = $(element).attr('href');
 
@@ -64,7 +69,11 @@ export default async function executeSeachQueries(session: BrowserSession, queri
 
             if (url) relevantURLs.add(url);
         });
+
+        debugStep("search results read", { query, newUrls: relevantURLs.size - before, total: relevantURLs.size });
     }
+
+    debugStep("search finished", { urls: [...relevantURLs] });
 
     return [...relevantURLs].slice(0, config.max_pages_per_turn);
 }

@@ -1,5 +1,6 @@
 import type { RawData } from "../types/types";
 import Scraper, { type BrowserSession } from "./scraper";
+import { debugStep } from "../utils/debug";
 import config from "../config.json";
 import { load } from "cheerio";
 
@@ -54,6 +55,7 @@ async function scrapeOne(session: BrowserSession, scraper: Scraper, url: string)
         const pageHTML = await scraper.getHTMLcontent(url, page);
 
         if (!pageHTML.ok) {
+            debugStep("page skipped", { url, reason: "navigation failed" });
             console.error(`Skipping ${url}: ${pageHTML.error}`);
             return null;
         }
@@ -61,14 +63,18 @@ async function scrapeOne(session: BrowserSession, scraper: Scraper, url: string)
         const cleanData = extractText(pageHTML.data);
 
         if (cleanData.length < config.min_page_characters) {
+            debugStep("page skipped", { url, reason: "too short", chars: cleanData.length });
             console.error(`Skipping ${url}: too little text to be useful`);
             return null;
         }
 
         if (looksBlocked(cleanData)) {
+            debugStep("page skipped", { url, reason: "sign-in or bot check" });
             console.error(`Skipping ${url}: the page served a sign-in or bot check`);
             return null;
         }
+
+        debugStep("page scraped", { url, chars: cleanData.length });
 
         return { url, data: cleanData };
     } finally {
@@ -105,6 +111,8 @@ export default async function getDataFromURLs(session: BrowserSession, urls: str
     });
 
     await Promise.all(workers);
+
+    debugStep("scraping finished", { requested: urls.length, kept: dataStore.length, workers: workerCount });
 
     return dataStore;
 }
