@@ -1,13 +1,16 @@
 import fs from 'fs';
 import path from 'path';
-import type { FunctionResponse, PromptType, ReplaceObject } from '../types/types';
-import ollama, { type ChatRequest, type Message } from "ollama";
+import type { FunctionResponse, PromptType, ReplaceObject, SearchPlan } from '../types/types';
+import { Ollama, type ChatRequest, type Message } from "ollama";
 import { z } from 'zod';
 import returnCreator from '../utils/returnCreator';
 import { env } from '../env';
 import config from "../config.json";
 
-const QUERIES_HARD_LIMIT = 7;
+const MAX_QUERIES = 8;
+
+// the planner talks to the configured Ollama server, not the library default
+const client = new Ollama({ host: env.OLLAMA_HOST });
 
 const SEARCH_TRIGGERS = [
     "current",
@@ -19,51 +22,36 @@ const SEARCH_TRIGGERS = [
     "weather",
     "forecast",
     "price",
-    "stock price",
+    "prices",
+    "stock",
     "score",
+    "scores",
     "standings",
     "schedule",
     "availability",
     "version",
     "release",
     "ranking",
-    "list",
+    "rankings",
     "top",
     "popular",
     "trending",
     "news",
     "updates",
-    "changes",
-    "diff",
-    "variance",
-    "comparison",
-    "benchmark",
-    "evaluation",
-    "analysis",
-    "results",
-    "scores",
-    "standings",
-    "schedule",
-    "live",
-    "results",
-    "stock prices",
-    "market trends",
     "earnings",
     "dividends",
-    "forecast",
-    "current weather",
-    "weather updates",
-    "weather conditions",
-    "latest news",
-    "top stories",
-    "breaking news",
-    "news updates",
-    "game results",
-    "match history",
-    "player stats",
-    "team rankings"
+    "live",
+    "results",
+    "headlines",
+    "breaking"
 ];
 
+/**
+ * Matched on whole words. A substring test fired on ordinary questions,
+ * because "now" sits inside "know", "top" inside "stop", "list" inside
+ * "listen", and so on, forcing a web search for static knowledge.
+ */
+const SEARCH_TRIGGER_PATTERN = new RegExp(`\\b(${SEARCH_TRIGGERS.join("|")})\\b`, "i");
 
 const SearchPlanSchema = z.discriminatedUnion("needsSearch", [
     z.object({
@@ -73,11 +61,11 @@ const SearchPlanSchema = z.discriminatedUnion("needsSearch", [
 
     z.object({
         needsSearch: z.literal(true),
-        queries: z.array(z.string()).min(1).max(8)
+        queries: z.array(z.string()).min(1).max(MAX_QUERIES)
     })
 ]);
 
-export function getPrompt(type: PromptType, replace: ReplaceObject[] = []): FunctionResponse {
+export function getPrompt(type: PromptType, replace: ReplaceObject[] = []): FunctionResponse<string> {
     try {
         let promptPath = path.join(__dirname, 'prompts', `${type}.txt`)
         let rawPrompt = fs.readFileSync(promptPath, 'utf-8');
@@ -92,22 +80,21 @@ export function getPrompt(type: PromptType, replace: ReplaceObject[] = []): Func
     }
 }
 
-export async function toSearchQuery(message: string): Promise<FunctionResponse> {
+export async function toSearchQuery(message: string): Promise<FunctionResponse<SearchPlan>> {
     try {
-        let result;
-        let promptType: PromptType = 'query';
+        const forced = definitelyNeedsSearch(message);
+        const promptType: PromptType = forced ? 'force_query' : 'query';
 
-        if (definitelyNeedsSearch(message)) promptType = 'force_query';
+        const prompt = getPrompt(promptType);
 
-        let { error, data } = getPrompt(promptType);
-        if (error) return returnCreator(error);
+        if (!prompt.ok) return returnCreator(prompt.error);
 
         const response = await queryModel(
             env.QUERY_MODEL,
             [
                 {
                     role: "system",
-                    content: data
+                    content: prompt.data
                 },
                 {
                     role: "user",
@@ -116,45 +103,62 @@ export async function toSearchQuery(message: string): Promise<FunctionResponse> 
             ],
             {
                 temperature: config.query_model_temperature
-            },
-            true
+            }
         )
 
-        result = {
-            needsSearch: promptType === "force_query" ? true : response.data.parsed.needsSearch,
-            queries: response.data.parsed.queries.slice(0, QUERIES_HARD_LIMIT)
-        }
+        // checked before use: previously a failure here surfaced as a null
+        // dereference, which hid the real cause behind a type error
+        if (!response.ok) return returnCreator(response.error);
 
-        return returnCreator(null, result);
+        const plan = response.data;
+        const needsSearch = forced ? true : plan.needsSearch;
+        let queries = plan.queries.slice(0, MAX_QUERIES);
+
+        // a forced search with no queries would silently not search, so fall
+        // back to the question itself
+        if (needsSearch && queries.length === 0) queries = [message.trim()];
+
+        return returnCreator(null, { needsSearch, queries });
     } catch (err) {
         return returnCreator("An error has occured while trying to generate the search query: " + err);
     }
 }
 
-async function queryModel(model: string, messages: Message[], options: ChatRequest["options"], json: boolean = true) {
+async function queryModel(model: string, messages: Message[], options: ChatRequest["options"]): Promise<FunctionResponse<SearchPlan>> {
+    let raw: string;
+
     try {
-        let promptDetails: ChatRequest & { stream?: false } = {
+        const promptDetails: ChatRequest & { stream?: false } = {
             model,
             messages,
-            options
+            options,
+            format: z.toJSONSchema(SearchPlanSchema)
         }
 
-        if (json) promptDetails.format = z.toJSONSchema(SearchPlanSchema);
+        const response = await client.chat(promptDetails);
 
-        const response = await ollama.chat(promptDetails);
-
-        let parsed = json ? SearchPlanSchema.parse( // TODO: safe parse this later
-            JSON.parse(response.message.content)
-        ) : response.message.content;
-
-        return returnCreator(null, { json, parsed });
+        raw = response.message.content;
     } catch (err) {
-        return returnCreator("An error has occured while trying to generate the search query: " + err);
+        return returnCreator("The query model could not be reached: " + err);
     }
+
+    let candidate: unknown;
+
+    try {
+        candidate = JSON.parse(raw);
+    } catch {
+        return returnCreator("The query model did not return JSON: " + raw.slice(0, 200));
+    }
+
+    const parsed = SearchPlanSchema.safeParse(candidate);
+
+    if (!parsed.success) {
+        return returnCreator("The query model returned an unexpected search plan: " + parsed.error.issues.map(issue => issue.message).join("; "));
+    }
+
+    return returnCreator(null, { needsSearch: parsed.data.needsSearch, queries: parsed.data.queries });
 }
 
 function definitelyNeedsSearch(input: string): boolean {
-    const text = input.trim().toLowerCase();
-
-    return SEARCH_TRIGGERS.some(trigger => text.includes(trigger));
+    return SEARCH_TRIGGER_PATTERN.test(input.trim());
 }

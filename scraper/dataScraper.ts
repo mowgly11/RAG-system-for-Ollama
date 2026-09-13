@@ -1,42 +1,110 @@
-import type { FunctionResponse, RawData } from "../types/types";
-import returnCreator from "../utils/returnCreator";
-import Scraper from "./scraper";
+import type { RawData } from "../types/types";
+import Scraper, { type BrowserSession } from "./scraper";
+import config from "../config.json";
 import { load } from "cheerio";
 
-export default async function getDataFromURLs(urls: string[]): Promise<FunctionResponse> { // TODO: make this support going through multiple URLs
-    const scraper = new Scraper(false);
+// text that means the page served a wall instead of an article
+const BLOCKED_MARKERS = [
+    "by clicking continue to join or sign in",
+    "sign in to continue",
+    "please enable javascript",
+    "enable javascript and cookies to continue",
+    "verify you are human",
+    "checking your browser before accessing",
+    "access denied",
+    "are you a robot"
+];
 
-    const { error, data } = await scraper.openBrowser();
+const BLOCKED_MAX_LENGTH = 2000;
 
-    if (error) return returnCreator(error);
+/**
+ * A short page carrying a sign-in or bot-check phrase is a wall, not content.
+ * Long pages are left alone, since an article may quote these phrases in
+ * passing.
+ */
+function looksBlocked(text: string): boolean {
+    if (text.length > BLOCKED_MAX_LENGTH) return false;
 
-    const { browser, page } = data;
+    const haystack = text.toLowerCase();
 
-    let dataStore: RawData[] = [];
+    return BLOCKED_MARKERS.some(marker => haystack.includes(marker));
+}
 
-    for (const url of urls) {
-        const pageHTML = await scraper.getHTMLcontent(url, page);
+function extractText(html: string): string {
+    const $ = load(html);
 
-        if (pageHTML.error) {
-            console.log(pageHTML.error);
-            continue;
-        }
-        
-        const $ = load(pageHTML.data);
+    $('script, style, noscript, iframe, svg, footer, nav, header, input, button, form, head').remove();
 
-        $('script, style, noscript, iframe, svg, footer, nav, header, input, button, form, head, a').remove();
+    // anchors are unwrapped rather than removed: the words inside a link are
+    // part of the sentence, and deleting the element deletes them too
+    $('a').each((_, element) => {
+        $(element).replaceWith($(element).text());
+    });
 
-        const cleanData = $('body').text()
+    return $('body').text()
         .replace(/\s+/g, ' ')
         .trim()
+        .slice(0, config.max_page_characters);
+}
 
-        // the kind of data being extracted
-        dataStore.push({
-            url,
-            data: cleanData
-        });
+async function scrapeOne(session: BrowserSession, scraper: Scraper, url: string): Promise<RawData | null> {
+    const page = await session.browser.newPage();
+
+    try {
+        const pageHTML = await scraper.getHTMLcontent(url, page);
+
+        if (!pageHTML.ok) {
+            console.error(`Skipping ${url}: ${pageHTML.error}`);
+            return null;
+        }
+
+        const cleanData = extractText(pageHTML.data);
+
+        if (cleanData.length < config.min_page_characters) {
+            console.error(`Skipping ${url}: too little text to be useful`);
+            return null;
+        }
+
+        if (looksBlocked(cleanData)) {
+            console.error(`Skipping ${url}: the page served a sign-in or bot check`);
+            return null;
+        }
+
+        return { url, data: cleanData };
+    } finally {
+        await page.close().catch(() => { /* already gone */ });
     }
-    
-    await browser.close();
-    return returnCreator(null, dataStore);
+}
+
+/**
+ * Fetches the given URLs a few at a time. Sequential fetching made a single
+ * question wait on every page in turn, which at the default navigation timeout
+ * could run for minutes.
+ */
+export default async function getDataFromURLs(session: BrowserSession, urls: string[]): Promise<RawData[]> {
+    const scraper = new Scraper();
+    const queue = [...urls];
+    const dataStore: RawData[] = [];
+
+    const workerCount = Math.max(1, Math.min(config.scraper_concurrency, queue.length));
+
+    const workers = Array.from({ length: workerCount }, async () => {
+        while (queue.length > 0) {
+            const url = queue.shift();
+
+            if (!url) break;
+
+            try {
+                const scraped = await scrapeOne(session, scraper, url);
+
+                if (scraped) dataStore.push(scraped);
+            } catch (err) {
+                console.error(`Skipping ${url}: ${err}`);
+            }
+        }
+    });
+
+    await Promise.all(workers);
+
+    return dataStore;
 }

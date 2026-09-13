@@ -29,7 +29,37 @@ bun install
 bun run start
 ```
 
-The app prompts `What is your question:` in a loop. Press Ctrl+C to stop.
+### A session
+
+On startup the app offers the ten most recently used conversations:
+
+```
+Previous conversations:
+
+   1. weather today                                 2 messages  9/13/26, 10:08 PM
+   2. Compare the current housing markets in Ph...  4 messages  9/13/26, 09:41 PM
+
+Enter a number to continue that conversation, or press Enter to start a new one:
+```
+
+Enter a number to continue that chat, which reloads its full history into the model. Press Enter to start a new one. Anything that is not a listed number also starts a new one. The prompt is skipped entirely the first time you run the app, since there is nothing to continue.
+
+A conversation is labelled by its first question, shortened to 60 characters. Conversations that were opened but never used are not offered.
+
+The app then prompts `What is your question:` in a loop. Type `exit` or `quit`, or submit an empty line, to leave. The chat ID is printed on the way out. Ctrl+C also works but skips that.
+
+## Conversation storage
+
+Two MongoDB collections are created on first use, in the database named by `MONGODB_CONNECT`.
+
+| Collection | Holds | Key fields |
+| --- | --- | --- |
+| `conversations` | One row per chat | `chatID`, `title`, `messageCount`, `lastMessageAt` |
+| `messages` | One row per message | `chatID`, `role`, `content`, `searchPerformed`, `queries`, `sources` |
+
+`chatID` is a UUID generated when a conversation starts, and it is what links the two collections. Search metadata is split across the turn: `searchPerformed` and `queries` are set on the user message, `sources` on the assistant reply.
+
+Conversation history is never written to Chroma. See `docs/overview.md` for why that separation matters.
 
 ## Environment variables
 
@@ -51,13 +81,30 @@ Variables are validated in `env.ts` with `zod`. Put them in a `.env` file at the
 
 Runtime tuning lives in `config.json` and is imported directly by the code.
 
+Models and retrieval:
+
 | Key | Default | Effect |
 | --- | --- | --- |
 | `query_model_temperature` | `0` | Temperature for the search planner. Keep at 0 for deterministic JSON. |
 | `llm_temperature` | `0.7` | Temperature for the answering LLM. |
 | `context_window_size` | `32768` | `num_ctx` passed to Ollama and the context window reported to `llamaindex`. |
-| `similarity_topk` | `5` | Number of chunks retrieved from Chroma per question. |
+| `similarity_topk` | `5` | Chunks retrieved per question when no search ran. |
+| `similarity_topk_after_search` | `12` | Chunks retrieved on a turn that just indexed pages, so fresh pages are not crowded out by older ones. |
+| `max_replayed_messages` | `40` | How many of a conversation's most recent messages are replayed into the model. |
+
+Scraping:
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `headless_browser` | `false` | Run Chrome hidden. Headed is the default because bot checks pass more often that way. |
 | `tor_proxy_enabled` | `false` | When `true`, Chrome is launched with `--proxy-server=$TOR_PROXY_URL`. |
+| `page_timeout_ms` | `20000` | Navigation timeout per page. |
+| `scraper_concurrency` | `3` | How many pages are fetched at once. |
+| `search_results_per_query` | `3` | Links taken from each search result page. |
+| `max_pages_per_turn` | `8` | Hard ceiling on pages fetched for one question. |
+| `search_request_delay_ms` | `1200` | Pause between DuckDuckGo requests, to avoid rate limiting. |
+| `min_page_characters` | `200` | Pages with less text than this are dropped instead of indexed. |
+| `max_page_characters` | `20000` | Scraped text is truncated to this length. |
 
 ## Prompts
 
@@ -69,8 +116,12 @@ Templates live in `prompt/prompts/` and are loaded by name at runtime, so they c
 
 ## Troubleshooting
 
-- **Chroma connection errors at startup**: make sure `chroma run` is listening on port 8000. The message `Connected to chroma instance` is printed once the storage context is created.
+- **Chroma connection errors at startup**: make sure `chroma run` is listening on port 8000. The app now checks the collection during startup and refuses to continue without it, rather than failing later on the first question. The message `Connected to chroma instance` is printed once the collection is reachable.
 - **App exits immediately with a Mongoose error**: MongoDB is not reachable at `MONGODB_CONNECT`.
+- **A continued conversation gives worse answers than a new one**: its replayed history may be crowding out the retrieved context. Lower `max_replayed_messages`, or start a new conversation.
+- **A question takes a long time**: it triggered a search. The ceiling is `max_pages_per_turn` pages at `page_timeout_ms` each, divided by `scraper_concurrency`. Lower the page ceiling for faster, shallower answers.
+- **The planner searches for things it should already know**: check whether the question contains a word from the trigger list in `prompt/prompt.ts`, which forces a search. Triggers match whole words, so removing an over-eager entry is usually the fix.
+- **`Export named 'connection' not found` from mongoose**: Bun resolves `connect`, `Schema`, and `model` as named exports of mongoose but not `connection`. Reach it off the default import, as `database/mongodb/mongodb.ts` does.
 - **Planner errors such as invalid JSON**: try a larger `QUERY_MODEL`. The response is parsed strictly against the schema and a parse failure aborts the loop.
 - **Chrome fails to launch or pages time out**: confirm Chrome is installed and, if Tor is enabled, that the Tor SOCKS proxy is running. Cloudflare Turnstile challenges are handled by `puppeteer-real-browser`, but some sites still block automated traffic.
 - **No search results**: DuckDuckGo may rate-limit or change its HTML markup. The scraper reads `a.result__snippet` links from `https://duckduckgo.com/html/`.

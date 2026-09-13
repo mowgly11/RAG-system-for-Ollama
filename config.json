@@ -2,7 +2,19 @@
     "query_model_temperature": 0,
     "llm_temperature": 0.7,
     "context_window_size": 32768,
-    "similarity_topk": 5,
 
-    "tor_proxy_enabled": false
+    "similarity_topk": 5,
+    "similarity_topk_after_search": 12,
+    "max_replayed_messages": 40,
+
+    "headless_browser": false,
+    "tor_proxy_enabled": false,
+    "page_timeout_ms": 20000,
+    "scraper_concurrency": 3,
+    "search_results_per_query": 3,
+    "max_pages_per_turn": 8,
+    "search_request_delay_ms": 1200,
+
+    "min_page_characters": 200,
+    "max_page_characters": 20000
 }
