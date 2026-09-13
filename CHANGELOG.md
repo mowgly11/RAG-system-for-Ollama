@@ -2,7 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Latest] - 2026-08-10
+## [Unreleased] - 2026-09-02
+
+### Added
+- **Search planner** (`prompt/prompt.ts`): `toSearchQuery()` asks a small `QUERY_MODEL` whether a question needs web search and which queries to run. Output is constrained to JSON via a schema generated from a `zod` definition, and queries are capped at 7.
+- **Force search**: a list of trigger words (for example "latest", "today", "price", "news") switches to the `force_query.txt` prompt so that search always happens for time-sensitive questions.
+- **DuckDuckGo search scraper** (`scraper/searchQueryScraper.ts`): loads the DuckDuckGo HTML endpoint for each query and collects the top 3 result links per query.
+- **Page data scraper** (`scraper/dataScraper.ts`): visits each result URL, strips non-content elements with `cheerio`, and returns cleaned body text as `RawData`.
+- **Bulk indexing** (`database/chroma/indexer.ts`): `indexDataBulk()` indexes many documents with `Promise.allSettled` and reports success and failure counts. `indexData()` now skips unchanged documents and replaces changed ones by hash.
+- **URL normalization**: document ids are normalized URLs (fragment, `utm_*` parameters, and trailing slash removed) so repeated scrapes do not duplicate pages.
+- **Tor proxy support**: `TOR_PROXY_URL` env var and `tor_proxy_enabled` in `config.json` route Chrome through a SOCKS proxy.
+- **MongoDB connection** (`database/mongodb/mongodb.ts`): Mongoose connects to `MONGODB_CONNECT` at startup. A placeholder `messages` schema was added but is still empty.
+- **`config.json`**: `query_model_temperature`, `llm_temperature`, `context_window_size`, `similarity_topk`, and `tor_proxy_enabled` moved out of code.
+- New env vars: `QUERY_MODEL`, `VECTOR_STORE_COLLECTION_NAME`, `TOR_PROXY_URL`, `MONGODB_CONNECT`.
+- New types: `FunctionResponse`, `RawData`, and the `force_query` member of `PromptType`.
+- `utils/returnCreator.ts` for the shared `{ error, data }` result shape.
+
+### Changed
+- `index.ts` now runs the full loop: plan search, scrape, index, then answer. It also sets `num_ctx` and the reported context window from `config.json`.
+- `scraper/scraper.ts` is now a `Scraper` class with `openBrowser()` and `getHTMLcontent(url, page)`. Navigation errors and empty bodies are returned as errors instead of thrown. Browsers are closed after each batch.
+- `database/` was reorganized into `database/chroma/` and `database/mongodb/`.
+- Prompt helpers return `FunctionResponse` instead of throwing.
+- `query.txt` was simplified and now requires strict JSON output.
+- The `TEMPERATURE` env var was removed in favour of `config.json`.
+- The system prompt was replaced with a plain helpful-assistant prompt.
+- Dependencies added: `mongoose`, `ollama`, `puppeteer`, `chromadb`.
+
+### Technical Details
+- **Commit range**: `3a04a74` (2026-08-11) to `7d00dff` (2026-09-02)
+- **Author**: John (mowgly11)
+
+---
+
+## [2026-08-10]
 
 ### Added
 - **Prompt Management System**: New `getPrompt()` function in `prompt/prompt.ts` for managing and loading prompt templates
