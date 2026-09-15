@@ -43,7 +43,7 @@ Set `DEBUG_MODE=true` to print every step of the flow above with the time it too
 ## Current limitations
 
 - The browser runs headed by default, because `puppeteer-real-browser` evades bot checks better that way. Set `headless_browser` to `true` to hide it, at the cost of being blocked more often.
-- Blocked-page and error-page detection are heuristics over known phrases plus the HTTP status. A wall or an error worded unusually, and served as HTTP 200, can still get through.
+- Blocked-page and error-page detection weigh three things: the HTTP status, the wording, and the shape of the page. Wording counts for the least, because it is the one thing a page controls freely, so a page built like an article is never rejected on phrasing alone. A wall or an error worded unusually, served as HTTP 200, and given enough paragraphs and headings to pass for an article, can still get through.
 - Main content extraction scores containers by text against link density. It suits articles and documentation. A page whose value is a table or a list of links will score badly and may be dropped.
 - A client rendered page is given `content_settle_ms` to put text on screen. A site slower than that still yields nothing.
 - Only the ten most recent conversations are offered at startup. There is no search over past chats and no way to resume one by typing its chat ID.

@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-09-15 (structure beats wording)
+
+### Changed
+
+- **Page triage now weighs how a page is built, not just what it says.** `extractArticleInPage` reports the paragraph, heading and code counts of the container it chose, and `judgePage` treats that as stronger evidence than any phrase match. A page built like an article is no longer rejected for its wording, in the title or the body. Four paragraphs, or two headings, or a code snippet with a couple of paragraphs, clears the bar.
+  - This keeps "403 Forbidden: 9 Ways to Fix It" indexable. Its title is literally an error string, which used to reject it at any length, and it is exactly what someone searching for that error should get back.
+  - It also closes the trick of opening an article with "Access denied" to repel the scraper. Wording is the one thing a page controls freely, so it is the weakest evidence available.
+  - A genuine error page or login wall given a single heading to look structured is still rejected. So is a structured page that is empty, mostly links, or served with an error status: length, link density and HTTP status are unaffected by structure.
+
+### Fixed
+
+- **The browser tests were flaky, which is worse than failing.** One run in three lost 37 of 45 tests. The redirect test was hitting Bun's default five second timeout, and because every test shared one page, that in-flight navigation took down every test after it. Two changes: the test script now runs with `--timeout 30000`, since browser navigation is nothing like a five second job, and each browser test gets its own page so a slow navigation cannot cascade. Five consecutive runs of the scraping file and three of the full suite came back clean afterwards.
+
+### Added
+
+- Fixtures that attack the triage from both sides: a troubleshooting article whose title is an error string, an article explaining what "access denied" means, an article that deliberately opens with error phrases, and a real error page and login wall each wearing one heading to look structured.
+- Tests covering the structure rules as pure logic, as browser extraction, and end to end. The end-to-end case feeds all five decoys through the scraper at once and asserts that exactly the three articles survive.
+- The debug line for a scraped page now reports its paragraph and heading counts, since those decide the verdict.
+
+### Notes
+
+- The suite is now 246 tests. 243 pass and 3 skip on a machine running only MongoDB.
+- The long padded login wall still gets through, and is still covered by a test that records it.
+
+---
+
 ## [Unreleased] - 2026-09-15 (test suite)
 
 ### Added

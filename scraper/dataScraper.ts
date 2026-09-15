@@ -49,6 +49,8 @@ async function scrapeOne(page: ScraperPage, scraper: Scraper, url: string): Prom
         chars: extracted.text.length,
         of: extracted.bodyLength,
         via: extracted.strategy,
+        paras: extracted.paragraphs,
+        heads: extracted.headings,
         status: loaded.data.status
     });
 

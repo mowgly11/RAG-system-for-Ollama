@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "bun run index.ts",
-    "test": "bun test"
+    "test": "bun test --timeout 30000"
   },
   "peerDependencies": {
     "typescript": "^5"

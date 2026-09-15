@@ -60,7 +60,7 @@ Chrome is the only hard requirement, and the scraper already needs it. A local H
 | --- | --- |
 | `tests/returnCreator.test.ts` | The result union, including that checking `ok` narrows the payload. |
 | `tests/triggers.test.ts` | The search decision: the three verdicts, whole-word matching, scoring, pasted links, and hostile input. |
-| `tests/pageTriage.test.ts` | `judgePage`, including the phrases that must not reject a real article. |
+| `tests/pageTriage.test.ts` | `judgePage`, including the phrases that must not reject a real article, and the structure rules that outrank them. |
 | `tests/searchFilters.test.ts` | Link unwrapping and the filters that reject a result before it costs a page load. |
 | `tests/prompt.test.ts` | Template loading, substitution, and a missing or traversing path. |
 | `tests/indexer.test.ts` | Document identity, so one page cannot become several documents. |
@@ -68,6 +68,8 @@ Chrome is the only hard requirement, and the scraper already needs it. A local H
 | `tests/conversations.test.ts` | The MongoDB store, including injection-shaped input. Needs MongoDB. |
 | `tests/workflow.test.ts` | The whole chain end to end against hostile pages and misleading questions. |
 | `tests/fixtures.ts` | The local server and its pages. Not a test file. |
+
+Some of those pages exist to attack the triage from both sides. A troubleshooting article titled "403 Forbidden: 9 Ways to Fix It" must be indexed. An article that deliberately opens with "Access denied. Page not found." to repel scrapers must also be indexed. A genuine error page or login wall given one heading to look structured must still be rejected.
 
 The fixture server serves pages built to break things: a soft 404 returned as HTTP 200, an error body under a friendly title, a login wall, a login wall padded long enough to slip past the wall check, a page whose article is buried in wrapper divs, hidden keyword stuffing, a page that renders only after a delay, a shell that never renders, a page far past the size cap, and a results page seeded with sponsored rows, `javascript:` links and sign-in-wall domains.
 

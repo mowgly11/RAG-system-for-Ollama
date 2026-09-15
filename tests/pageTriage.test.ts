@@ -11,6 +11,9 @@ function page(overrides: Partial<ExtractedPage> = {}): ExtractedPage {
         bodyLength: 1200,
         linkDensity: 0.1,
         strategy: "article",
+        paragraphs: 1,
+        headings: 0,
+        codeBlocks: 0,
         ...overrides
     };
 }
@@ -87,6 +90,47 @@ describe("page triage: what gets thrown away", () => {
     test("link density right at the threshold", () => {
         expect(reason({ linkDensity: 0.46 })).toContain("mostly links");
         expect(reason({ linkDensity: 0.44 })).toBeNull();
+    });
+});
+
+describe("page triage: structure outranks wording", () => {
+    // wording is the one thing a page controls freely, so a page built like an
+    // article beats a phrase match
+
+    test("a troubleshooting article keeps its alarming title", () => {
+        expect(reason({ title: "403 Forbidden: 9 Ways to Fix It", paragraphs: 6, headings: 3 })).toBeNull();
+    });
+
+    test("an article titled 'What Does Access Denied Mean' is kept", () => {
+        expect(reason({ title: "What Does Access Denied Mean", paragraphs: 5, headings: 2 })).toBeNull();
+    });
+
+    test("a writer cannot repel the scraper by opening with an error phrase", () => {
+        // the trick: lead with the words, hope to be skipped
+        const text = "Access denied. Page not found. Service unavailable. " + "word ".repeat(120);
+        expect(reason({ text, paragraphs: 5, headings: 2 })).toBeNull();
+    });
+
+    test("code plus a couple of paragraphs is enough structure", () => {
+        expect(reason({ title: "Error 500 explained", paragraphs: 2, codeBlocks: 1, headings: 0 })).toBeNull();
+    });
+
+    test("one heading and one paragraph is NOT an article", () => {
+        // a real error page dressed up with a heading must still be rejected
+        expect(reason({ title: "Access Denied", paragraphs: 1, headings: 1 })).toContain("error page");
+    });
+
+    test("a wall with a heading is still a wall", () => {
+        const text = "Sign in to continue reading this article. ".repeat(7);
+        expect(reason({ text, paragraphs: 1, headings: 1 })).toContain("sign-in or bot check");
+    });
+
+    test("structure does not rescue a page that is mostly links", () => {
+        expect(reason({ paragraphs: 9, headings: 4, linkDensity: 0.8 })).toContain("mostly links");
+    });
+
+    test("structure does not rescue a page with no text", () => {
+        expect(reason({ text: "tiny", paragraphs: 9, headings: 4 })).toContain("too short");
     });
 });
 

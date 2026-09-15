@@ -13,7 +13,7 @@
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import mongoose from "mongoose";
-import Scraper, { preparePage, type BrowserSession } from "../scraper/scraper";
+import Scraper, { preparePage, type BrowserSession, type ScraperPage } from "../scraper/scraper";
 import {
     extractSearchResultsInPage, extractArticleInPage, judgePage,
     NOISE_SELECTOR, type ExtractedPage
@@ -63,12 +63,26 @@ afterAll(async () => {
     }
 });
 
+/** A fresh page per call, so one slow navigation cannot poison later tests. */
+async function withPage<T>(work: (page: ScraperPage) => Promise<T>): Promise<T> {
+    const page = await session.browser.newPage();
+
+    await preparePage(page);
+
+    try {
+        return await work(page);
+    } finally {
+        await page.close().catch(() => { /* already gone */ });
+    }
+}
+
 /** Search stage: read the results page, unwrap, then filter. */
 async function searchStage(): Promise<{ accepted: string[], rejected: { url: string, reason: string }[] }> {
-    const loaded = await scraper.openPage(server.url + "/ddg-local", session.page);
-    if (!loaded.ok) throw new Error("results page failed: " + loaded.error);
-
-    const harvest = await session.page.evaluate(extractSearchResultsInPage, 40);
+    const harvest = await withPage(async page => {
+        const loaded = await scraper.openPage(server.url + "/ddg-local", page);
+        if (!loaded.ok) throw new Error("results page failed: " + loaded.error);
+        return await page.evaluate(extractSearchResultsInPage, 40);
+    });
 
     const accepted: string[] = [];
     const rejected: { url: string, reason: string }[] = [];
@@ -204,15 +218,15 @@ describe("full workflow: search through to documents", () => {
 });
 
 describe("full workflow: hostile pages", () => {
-    const read = async (path: string): Promise<ExtractedPage> => {
-        const loaded = await scraper.openPage(server.url + path, session.page);
+    const read = async (path: string): Promise<ExtractedPage> => withPage(async page => {
+        const loaded = await scraper.openPage(server.url + path, page);
         if (!loaded.ok) throw new Error(path + ": " + loaded.error);
-        return await session.page.evaluate(extractArticleInPage, {
+        return await page.evaluate(extractArticleInPage, {
             maxChars: config.max_page_characters,
             noise: NOISE_SELECTOR,
             minCandidate: 140
         });
-    };
+    });
 
     test("hidden keyword stuffing never reaches a document", async () => {
         const doc = toDocument((await read("/hidden-spam")).text, "https://example.com/spam");
@@ -247,11 +261,47 @@ describe("full workflow: hostile pages", () => {
 
     test("a slow navigation is abandoned rather than hanging the turn", async () => {
         const started = Date.now();
-        const loaded = await scraper.openPage(server.url + "/hang", session.page);
+        const loaded = await withPage(page => scraper.openPage(server.url + "/hang", page));
 
         expect(loaded.ok).toBe(false);
         expect(Date.now() - started).toBeLessThan(config.page_timeout_ms + 8000);
     }, 60000);
+});
+
+describe("full workflow: pages that try to talk their way out of the index", () => {
+    let kept: string[] = [];
+
+    beforeAll(async () => {
+        const candidates = [
+            "/troubleshooting",        // title IS an error string, but it is an article
+            "/what-is-access-denied",  // the phrase leads the body too
+            "/decoy-opening",          // opens with error phrases to repel scrapers
+            "/dressed-up-error",       // a real error page wearing one heading
+            "/dressed-up-wall"         // a real login wall wearing one heading
+        ].map(path => server.url + path);
+
+        const pages = await getDataFromURLs(session, candidates);
+        kept = pages.map(page => page.url);
+    }, 120000);
+
+    test.each([
+        ["a troubleshooting article titled 403 Forbidden", "/troubleshooting"],
+        ["an article explaining what access denied means", "/what-is-access-denied"],
+        ["an article that opens with error phrases on purpose", "/decoy-opening"]
+    ])("%s is indexed", (_label, path) => {
+        expect(kept.some(url => url.endsWith(path))).toBe(true);
+    });
+
+    test.each([
+        ["a real error page with a heading", "/dressed-up-error"],
+        ["a real login wall with a heading", "/dressed-up-wall"]
+    ])("%s is still rejected", (_label, path) => {
+        expect(kept.some(url => url.endsWith(path))).toBe(false);
+    });
+
+    test("exactly the three articles survive", () => {
+        expect(kept.length).toBe(3);
+    });
 });
 
 describe("full workflow: questions designed to mislead the router", () => {

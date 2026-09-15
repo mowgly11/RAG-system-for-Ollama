@@ -99,6 +99,66 @@ export const ROUTES: Record<string, Route> = {
             `<article><p>${PROSE.repeat(6)} An access denied message usually means the process lacks permission. ${PROSE.repeat(6)}</p></article>`)
     },
 
+    // a real troubleshooting article. Its title IS an error string, which used
+    // to be enough to reject it at any length.
+    "/troubleshooting": {
+        body: article("403 Forbidden: 9 Ways to Fix It",
+            `<article class="post-content">
+                <h1>403 Forbidden: 9 Ways to Fix It</h1>
+                <p>${PROSE.repeat(2)}</p>
+                <h2>Check file permissions</h2>
+                <p>${PROSE.repeat(2)}</p>
+                <pre><code>chmod 644 index.html</code></pre>
+                <h2>Check the owner</h2>
+                <p>${PROSE.repeat(2)}</p>
+                <p>${PROSE.repeat(2)}</p>
+            </article>`)
+    },
+
+    // same idea, phrased as a question, and the phrase leads the body too
+    "/what-is-access-denied": {
+        body: article("What Does Access Denied Mean",
+            `<article class="entry-content">
+                <h1>What Does Access Denied Mean</h1>
+                <p>Access denied is the message a server returns when it understood you and refused anyway. ${PROSE.repeat(2)}</p>
+                <h2>Common causes</h2>
+                <p>${PROSE.repeat(2)}</p>
+                <p>${PROSE.repeat(2)}</p>
+                <p>${PROSE.repeat(2)}</p>
+            </article>`)
+    },
+
+    // the trick: a writer opens with an error phrase hoping to repel scrapers,
+    // but the page underneath is a real article
+    "/decoy-opening": {
+        body: article("A Short Guide to Sorting",
+            `<article class="post-content">
+                <p>Access denied. Page not found. Service unavailable.</p>
+                <h2>Sorting in practice</h2>
+                <p>${PROSE.repeat(1)}</p>
+                <p>${PROSE.repeat(1)}</p>
+                <p>${PROSE.repeat(1)}</p>
+                <p>${PROSE.repeat(1)}</p>
+            </article>`)
+    },
+
+    // the other direction: a genuine error page that has been given one
+    // heading to look structured. One heading is not an article.
+    "/dressed-up-error": {
+        body: `<html><head><title>Access Denied</title></head><body><main>
+            <h1>Access denied</h1>
+            <p>${"You do not have permission to view this page. ".repeat(6)}</p>
+        </main></body></html>`
+    },
+
+    // a login wall wearing a heading, still only one block of text
+    "/dressed-up-wall": {
+        body: `<html><head><title>Members</title></head><body><main>
+            <h1>Sign in to continue</h1>
+            <p>${"Sign in to continue reading this article. ".repeat(7)}</p>
+        </main></body></html>`
+    },
+
     "/linkfarm": {
         body: `<html><head><title>Tag Index</title></head><body><main>` +
             Array.from({ length: 70 }, (_, i) => `<a href="/p${i}">Some fairly long link title number ${i}</a> `).join("") +

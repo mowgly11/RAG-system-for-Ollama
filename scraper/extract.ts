@@ -14,6 +14,13 @@ export type ExtractedPage = {
     bodyLength: number;
     linkDensity: number;
     strategy: string;
+
+    // shape of the chosen container. An error page is one or two blocks of
+    // text. A written article has paragraphs, headings, often code. This is
+    // what tells a real troubleshooting post apart from the error it is about.
+    paragraphs: number;
+    headings: number;
+    codeBlocks: number;
 }
 
 export type SearchHit = {
@@ -68,7 +75,7 @@ export function extractArticleInPage(options: { maxChars: number, noise: string,
 
     for (const node of Array.from(document.querySelectorAll(noise))) node.remove();
 
-    type Candidate = { text: string, score: number, density: number, tag: string };
+    type Candidate = { el: Element, text: string, score: number, density: number, tag: string };
 
     const candidates: Candidate[] = [];
     const scope = document.querySelectorAll("article, main, [role='main'], section, div");
@@ -98,7 +105,7 @@ export function extractArticleInPage(options: { maxChars: number, noise: string,
         if (/(nav|menu|sidebar|footer|header|comment|promo|advert|banner|related|share|social|cookie|newsletter|subscribe|breadcrumb)/.test(signature)) score *= 0.25;
         if (/(article|content|post|entry|main|story|body|markdown|prose)/.test(signature)) score *= 1.35;
 
-        candidates.push({ text, score, density, tag });
+        candidates.push({ el: element, text, score, density, tag });
     }
 
     candidates.sort((a, b) => b.score - a.score);
@@ -119,6 +126,7 @@ export function extractArticleInPage(options: { maxChars: number, noise: string,
     let text = bodyText;
     let strategy = "body";
     let density = bodyDensity;
+    let chosen: Element | null = document.body;
 
     // only prefer the candidate when it actually holds the bulk of the page,
     // otherwise a sidebar that scored well would throw the article away
@@ -126,7 +134,13 @@ export function extractArticleInPage(options: { maxChars: number, noise: string,
         text = best.text;
         strategy = best.tag;
         density = best.density;
+        chosen = best.el;
     }
+
+    // counted on whatever container was actually chosen. `code` is included
+    // alongside `pre` because an inline snippet is just as strong a sign that
+    // a human wrote this for other humans.
+    const count = (selector: string): number => chosen ? chosen.querySelectorAll(selector).length : 0;
 
     return {
         title: (document.title ?? "").trim(),
@@ -134,7 +148,10 @@ export function extractArticleInPage(options: { maxChars: number, noise: string,
         textLength: text.length,
         bodyLength: bodyText.length,
         linkDensity: density,
-        strategy
+        strategy,
+        paragraphs: count("p"),
+        headings: count("h1, h2, h3, h4, h5, h6"),
+        codeBlocks: count("pre, code")
     };
 }
 
@@ -267,6 +284,22 @@ const LEADING_WINDOW = 500;
 /** Below this there is not enough page for position to mean anything. */
 const VERY_SHORT = 600;
 
+/**
+ * What it takes to look like something a person wrote.
+ *
+ * An error page is one or two blocks: a heading and a line of apology. A
+ * troubleshooting article about the same error has sections, several
+ * paragraphs and usually a snippet. Any one of these clears the bar.
+ */
+const ARTICLE_PARAGRAPHS = 4;
+const ARTICLE_HEADINGS = 2;
+
+function looksWritten(page: ExtractedPage): boolean {
+    return page.paragraphs >= ARTICLE_PARAGRAPHS
+        || page.headings >= ARTICLE_HEADINGS
+        || (page.codeBlocks >= 1 && page.paragraphs >= 2);
+}
+
 export type PageVerdict =
     | { usable: true }
     | { usable: false, reason: string };
@@ -285,22 +318,30 @@ export function judgePage(page: ExtractedPage, minCharacters: number): PageVerdi
     const haystack = text.toLowerCase();
     const title = page.title.toLowerCase();
 
+    // Phrase matching is evidence about wording, and wording is the one thing
+    // a page controls freely. A page built like an article outranks it: that
+    // is what keeps "403 Forbidden: 9 Ways to Fix It" out of the net, and what
+    // stops a writer repelling the scraper by opening with "access denied".
+    const written = looksWritten(page);
+
     // a short page whose opening line is the phrase, or a page so small that
     // the phrase is most of it
     const announces = (marker: string): boolean =>
-        text.length < SHORT_PAGE_LIMIT
+        !written
+        && text.length < SHORT_PAGE_LIMIT
         && (haystack.lastIndexOf(marker, LEADING_WINDOW) !== -1 || (text.length < VERY_SHORT && haystack.includes(marker)));
 
     const blocked = BLOCKED_MARKERS.find(announces);
 
     if (blocked) return { usable: false, reason: "sign-in or bot check" };
 
-    const errored = ERROR_MARKERS.find(marker => announces(marker) || title.includes(marker));
+    const errored = ERROR_MARKERS.find(marker => announces(marker) || (!written && title.includes(marker)));
 
     if (errored) return { usable: false, reason: `error page (${errored})` };
 
-    // a title of "404" or "Page Not Found" is decisive whatever the length
-    if (ERROR_TITLE.test(page.title)) return { usable: false, reason: `error page title (${page.title})` };
+    // a title of "404" or "Page Not Found" is decisive, unless the page under
+    // it is plainly an article about that error
+    if (!written && ERROR_TITLE.test(page.title)) return { usable: false, reason: `error page title (${page.title})` };
 
     // mostly links means we picked up an index or a tag listing
     if (page.linkDensity > 0.45) return { usable: false, reason: "mostly links" };
