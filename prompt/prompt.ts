@@ -5,6 +5,7 @@ import { Ollama, type ChatRequest, type Message } from "ollama";
 import { z } from 'zod';
 import returnCreator from '../utils/returnCreator';
 import { debugStep } from '../utils/debug';
+import { classifyQuestion } from './triggers';
 import { env } from '../env';
 import config from "../config.json";
 
@@ -12,47 +13,6 @@ const MAX_QUERIES = 8;
 
 // the planner talks to the configured Ollama server, not the library default
 const client = new Ollama({ host: env.OLLAMA_HOST });
-
-const SEARCH_TRIGGERS = [
-    "current",
-    "latest",
-    "today",
-    "now",
-    "recent",
-    "recently",
-    "weather",
-    "forecast",
-    "price",
-    "prices",
-    "stock",
-    "score",
-    "scores",
-    "standings",
-    "schedule",
-    "availability",
-    "version",
-    "release",
-    "ranking",
-    "rankings",
-    "top",
-    "popular",
-    "trending",
-    "news",
-    "updates",
-    "earnings",
-    "dividends",
-    "live",
-    "results",
-    "headlines",
-    "breaking"
-];
-
-/**
- * Matched on whole words. A substring test fired on ordinary questions,
- * because "now" sits inside "know", "top" inside "stop", "list" inside
- * "listen", and so on, forcing a web search for static knowledge.
- */
-const SEARCH_TRIGGER_PATTERN = new RegExp(`\\b(${SEARCH_TRIGGERS.join("|")})\\b`, "i");
 
 const SearchPlanSchema = z.discriminatedUnion("needsSearch", [
     z.object({
@@ -83,7 +43,21 @@ export function getPrompt(type: PromptType, replace: ReplaceObject[] = []): Func
 
 export async function toSearchQuery(message: string): Promise<FunctionResponse<SearchPlan>> {
     try {
-        const forced = definitelyNeedsSearch(message);
+        const classification = classifyQuestion(message);
+
+        debugStep("search decision", {
+            decision: classification.decision,
+            score: classification.score,
+            signals: classification.signals
+        });
+
+        // a plainly definitional question does not need the planner at all,
+        // and the planner is the slowest step in a turn
+        if (classification.decision === "skip" && config.skip_planner_for_static) {
+            return returnCreator(null, { needsSearch: false, queries: [] });
+        }
+
+        const forced = classification.decision === "force";
         const promptType: PromptType = forced ? 'force_query' : 'query';
 
         debugStep("planner prompt chosen", { prompt: promptType, forced });
@@ -170,8 +144,4 @@ async function queryModel(model: string, messages: Message[], options: ChatReque
     }
 
     return returnCreator(null, { needsSearch: parsed.data.needsSearch, queries: parsed.data.queries });
-}
-
-function definitelyNeedsSearch(input: string): boolean {
-    return SEARCH_TRIGGER_PATTERN.test(input.trim());
 }

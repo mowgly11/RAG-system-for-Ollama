@@ -2,6 +2,67 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-09-15 (test suite)
+
+### Added
+
+- **A test suite**, run with `bun test`. 224 tests across 10 files: one per workflow step, plus an end-to-end run of the whole chain under adversarial input.
+- **A local HTTP server as the web** (`tests/fixtures.ts`), so the scraping tests are deterministic and need no network. Its pages are built to break things: a soft 404 returned as HTTP 200, an error body under a friendly title, a login wall, a login wall padded long enough to slip past the wall check, an article buried in wrapper divs, hidden keyword stuffing, a page that renders only after a delay, a shell that never renders, a page far past the size cap, and a results page seeded with sponsored rows, `javascript:` links, and sign-in-wall domains.
+- **Service probes**, so tests that need MongoDB, Chroma, or Ollama skip and say so rather than failing.
+- `unwrapResultURL`, `hostOf` and `rejectionReason` are exported from the search scraper so the filter rules can be tested directly.
+
+### Fixed
+
+Both found by tests written against the existing behaviour.
+
+- **A short article mentioning an error phrase was thrown away.** Marker checks searched the whole text, so a 1300 character article about error handling was rejected for containing "access denied". An error page leads with that sentence while an article reaches it partway down, so position is now part of the evidence: a marker counts only when it appears near the top, or on a page too small for position to mean anything.
+- **A pasted link decided the question on its own.** Hyphens are word boundaries, so `https://example.com/what-is-the-current-price` scored on "current" and "price" and forced a search. Links are stripped before scoring, since a slug is not the asker's wording. The words around a link still count.
+
+### Notes
+
+- Three tests skip on a machine running only MongoDB: two need Ollama for the live planner, and one is the placeholder reporting that MongoDB was unavailable.
+- Two test expectations turned out to be wrong rather than the code: the force prompt describes its output shape with an example rather than the word "JSON", and every fixture page shares the loopback host, so the per-domain cap was the binding limit on the search stage. Both tests now assert what the code actually guarantees, and the scrape stage is fed its candidates directly so it faces every trap at once.
+- The long padded login wall is covered by a test that records it getting through, so the tradeoff stays visible rather than being forgotten.
+
+---
+
+## [Unreleased] - 2026-09-15 (extraction, triage and search)
+
+### Added
+
+- **Main content extraction.** `scraper/extract.ts` scores candidate containers by how much text they hold against how much of it is link text, with a bonus for `article` and `main` and for content-shaped class names, and a penalty for nav-shaped ones. Taking all of `body.innerText` dragged in menus, cookie banners and related-article lists.
+- **Extraction runs inside the page.** It sees the DOM the site's JavaScript produced, and moves only the extracted text across the wire instead of the whole body markup.
+- **A wait for client rendered pages.** After `DOMContentLoaded` the page is given `content_settle_ms` to put text on screen. A single-page app is empty at that moment and fills in later, so those were previously discarded as too short.
+- **Page triage before indexing.** `judgePage()` rejects pages that are too short, mostly links, an error page, or a sign-in wall. The error-title pattern matches titles that are about an error rather than titles that merely contain the word, so "Error Handling in Rust" survives.
+- **Result filtering before fetching.** Unreadable document types, hosts in the new `skip_domains` list, and more than `max_results_per_domain` from one site are rejected at search time. Verified against a live query: two LinkedIn results were dropped without ever being loaded, and the quota refilled from the remaining pool.
+- **Richer search result extraction**, reading title, snippet and link per row inside the page, skipping sponsored rows, and reporting a bot challenge or an empty result page as distinct outcomes.
+- New `config.json` keys: `block_page_resources`, `content_settle_ms`, `max_results_per_domain`, `skip_planner_for_static`, `skip_domains`.
+
+### Fixed
+
+- **HTTP error responses were scraped and indexed as content.** The status from the navigation was discarded entirely, so a 404 or a 503 became a document. Status and content type are now checked before anything reads the page. A live run confirmed it: a weather site answering 403 is excluded, where it previously produced an empty document.
+- **Non-HTML responses were fed to the text extractor.** A PDF or an image is now rejected on content type.
+- **Navigation failures reported raw Chrome internals.** `ERR_NAME_NOT_RESOLVED` and friends are translated into something a reader can act on.
+- **A container could report more text than the whole page.** The body snapshot was taken before the candidate walk, so a page still rendering appeared smaller than a container inside it. It is read afterwards now.
+- **A page of nothing but links was kept.** When every candidate was filtered out for link density, the fallback to body text reported a density of zero and lost the signal.
+
+### Changed
+
+- **The search trigger system is scored rather than binary.** A flat word list forced a search whenever any single word matched, which over-fired: "live" appears in "how does live reload work", "top" in "what is a top-level domain". Signals are weighted now, phrases count for more than bare words, and definitional phrasing counts against searching. `prompt/triggers.ts` returns one of three verdicts.
+- **A plainly definitional question no longer calls the planner model.** The planner is the slowest step in a turn, measured at close to eight seconds, and a question like "what is binary search" was never going to need the web. Controlled by `skip_planner_for_static`.
+- Search pacing dropped from 1200ms to 700ms between queries, and the lighter `html.duckduckgo.com` endpoint is tried first, with the main host as a fallback for a challenge or an empty page.
+- The page scraper uses one page per worker rather than one per URL.
+- The page title is prepended to the extracted text, since it names the page for the embedder.
+- Dropped the `cheerio` dependency. Extraction moved into the browser, so nothing imports it.
+
+### Notes
+
+- **Resource blocking did not deliver and is off by default.** Blocking images, fonts, stylesheets and media measured at a mean of 4641ms against 4663ms without it, over a fixed six-page list, with run-to-run variance far larger than the difference. Intercepting every request costs a round trip of its own, which cancels the bandwidth saved. The code is kept behind `block_page_resources` for slow or metered connections, but no speed claim is made for it.
+- Verified with 33 checks on the pure classifier and triage logic, and 27 browser checks driven against a local server covering 404, 503, PDF content type, a refused connection, a client rendered page, a soft 404, a link index, and the search result markup. A live search and scrape run confirmed the behaviour end to end.
+- Corrected three stale claims in the docs that the code had already outgrown: the note that only the embedding client used `OLLAMA_HOST`, the claim that a continued conversation replays its full history, and a debug sample predating the search decision line.
+
+---
+
 ## [Unreleased] - 2026-09-13 (debug mode)
 
 ### Added

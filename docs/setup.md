@@ -42,11 +42,36 @@ Previous conversations:
 Enter a number to continue that conversation, or press Enter to start a new one:
 ```
 
-Enter a number to continue that chat, which reloads its full history into the model. Press Enter to start a new one. Anything that is not a listed number also starts a new one. The prompt is skipped entirely the first time you run the app, since there is nothing to continue.
+Enter a number to continue that chat, which reloads its recent history into the model, up to `max_replayed_messages`. Press Enter to start a new one. Anything that is not a listed number also starts a new one. The prompt is skipped entirely the first time you run the app, since there is nothing to continue.
 
 A conversation is labelled by its first question, shortened to 60 characters. Conversations that were opened but never used are not offered.
 
 The app then prompts `What is your question:` in a loop. Type `exit` or `quit`, or submit an empty line, to leave. The chat ID is printed on the way out. Ctrl+C also works but skips that.
+
+## Tests
+
+```bash
+bun test
+```
+
+Chrome is the only hard requirement, and the scraper already needs it. A local HTTP server stands in for the web, so the suite is deterministic and works offline. Tests that need a service skip themselves when it is not running, and say so rather than failing.
+
+| File | Covers |
+| --- | --- |
+| `tests/returnCreator.test.ts` | The result union, including that checking `ok` narrows the payload. |
+| `tests/triggers.test.ts` | The search decision: the three verdicts, whole-word matching, scoring, pasted links, and hostile input. |
+| `tests/pageTriage.test.ts` | `judgePage`, including the phrases that must not reject a real article. |
+| `tests/searchFilters.test.ts` | Link unwrapping and the filters that reject a result before it costs a page load. |
+| `tests/prompt.test.ts` | Template loading, substitution, and a missing or traversing path. |
+| `tests/indexer.test.ts` | Document identity, so one page cannot become several documents. |
+| `tests/scraping.test.ts` | Navigation and extraction in a real browser: status codes, content types, the wait for client rendered pages, and result parsing. |
+| `tests/conversations.test.ts` | The MongoDB store, including injection-shaped input. Needs MongoDB. |
+| `tests/workflow.test.ts` | The whole chain end to end against hostile pages and misleading questions. |
+| `tests/fixtures.ts` | The local server and its pages. Not a test file. |
+
+The fixture server serves pages built to break things: a soft 404 returned as HTTP 200, an error body under a friendly title, a login wall, a login wall padded long enough to slip past the wall check, a page whose article is buried in wrapper divs, hidden keyword stuffing, a page that renders only after a delay, a shell that never renders, a page far past the size cap, and a results page seeded with sponsored rows, `javascript:` links and sign-in-wall domains.
+
+Three tests currently skip on a machine with only MongoDB running. Two need Ollama for the live planner, and one is the placeholder that reports MongoDB was unavailable.
 
 ## Debug mode
 
@@ -55,13 +80,14 @@ Set `DEBUG_MODE=true` to trace a question from the moment it is read to the mome
 ```
 [debug] ===== turn 1 =====
 [debug]      +0ms  question received        chars=37
-[debug]      +3ms  planner prompt chosen    prompt="force_query" forced=true
+[debug]      +1ms  search decision          decision="force" score=5 signals=["time sensitive", "volatile subject"]
 [debug]   +7869ms  planner model called     model="llama3.2:1b"
 [debug]      +2ms  planner plan parsed      needsSearch=true queries=["Boston weather today", ...+4]
-[debug]   +1078ms  search results read      query="Boston weather today" newUrls=3 total=3
-[debug]    +370ms  page skipped             url="https://www.easeweather.com/..." reason="too short" chars=0
-[debug]    +473ms  page scraped             url="https://weather.com/..." chars=354
-[debug]     +49ms  scraping finished        requested=3 kept=2 workers=3
+[debug]    +981ms  result rejected          url="https://www.linkedin.com/..." reason="linkedin.com serves a sign-in wall"
+[debug]   +1136ms  search results read      query="Boston weather today" accepted=3 offered=10 total=3
+[debug]    +687ms  page skipped             url="https://www.easeweather.com/..." reason="The site returned HTTP 403"
+[debug]    +473ms  page scraped             url="https://weather.com/..." chars=388 of=388 via="main" status=200
+[debug]     +49ms  scraping finished        requested=3 kept=2 skipped=1 failed=0 workers=3
 [debug]    +528ms  previous chunks cleared  url="https://weather.com/..."
 [debug]   +1306ms  document indexed         url="https://weather.com/..."
 [debug]     +12ms  chat engine built        similarityTopK=12 historyMessages=4
@@ -101,7 +127,7 @@ Variables are validated in `env.ts` with `zod`. Put them in a `.env` file at the
 
 `DEBUG_MODE` accepts `true`, `false`, `1`, `0`, `yes`, and `no`. Anything else is rejected at startup rather than quietly treated as true.
 
-**Caveat on `OLLAMA_HOST`.** Only the embedding client is given this value. The chat LLM in `index.ts` and the planner call in `prompt/prompt.ts` use the `ollama` client default of `127.0.0.1:11434`. If your Ollama server runs elsewhere, you must also pass the host to those two clients in code.
+All three Ollama clients use `OLLAMA_HOST`: the embedding model, the answering model, and the planner. A remote Ollama server needs no code change.
 
 ## `config.json`
 
@@ -117,6 +143,7 @@ Models and retrieval:
 | `similarity_topk` | `5` | Chunks retrieved per question when no search ran. |
 | `similarity_topk_after_search` | `12` | Chunks retrieved on a turn that just indexed pages, so fresh pages are not crowded out by older ones. |
 | `max_replayed_messages` | `40` | How many of a conversation's most recent messages are replayed into the model. |
+| `skip_planner_for_static` | `true` | Let a plainly definitional question skip the planner model entirely. The planner is the slowest step in a turn, so this removes several seconds from questions that were never going to need the web. |
 
 Scraping:
 
@@ -124,13 +151,17 @@ Scraping:
 | --- | --- | --- |
 | `headless_browser` | `false` | Run Chrome hidden. Headed is the default because bot checks pass more often that way. |
 | `tor_proxy_enabled` | `false` | When `true`, Chrome is launched with `--proxy-server=$TOR_PROXY_URL`. |
+| `block_page_resources` | `false` | Drop images, fonts, stylesheets and media before they are fetched. Measured as no faster on a fast connection, because intercepting every request costs a round trip of its own. Left in for slow or metered links. |
 | `page_timeout_ms` | `20000` | Navigation timeout per page. |
+| `content_settle_ms` | `4000` | How long to wait for a client rendered page to put text on screen. |
 | `scraper_concurrency` | `3` | How many pages are fetched at once. |
-| `search_results_per_query` | `3` | Links taken from each search result page. |
+| `search_results_per_query` | `3` | Links kept from each search result page, after filtering. |
+| `max_results_per_domain` | `2` | Ceiling per site across a turn, so one domain cannot fill the whole batch. |
 | `max_pages_per_turn` | `8` | Hard ceiling on pages fetched for one question. |
-| `search_request_delay_ms` | `1200` | Pause between DuckDuckGo requests, to avoid rate limiting. |
+| `search_request_delay_ms` | `700` | Pause between DuckDuckGo requests, to avoid rate limiting. |
 | `min_page_characters` | `200` | Pages with less text than this are dropped instead of indexed. |
 | `max_page_characters` | `20000` | Scraped text is truncated to this length. |
+| `skip_domains` | social sites | Hosts rejected before they cost a page load, because they reliably serve a sign-in wall. |
 
 ## Prompts
 
@@ -146,7 +177,9 @@ Templates live in `prompt/prompts/` and are loaded by name at runtime, so they c
 - **App exits immediately with a Mongoose error**: MongoDB is not reachable at `MONGODB_CONNECT`.
 - **A continued conversation gives worse answers than a new one**: its replayed history may be crowding out the retrieved context. Lower `max_replayed_messages`, or start a new conversation.
 - **A question takes a long time**: it triggered a search. The ceiling is `max_pages_per_turn` pages at `page_timeout_ms` each, divided by `scraper_concurrency`. Lower the page ceiling for faster, shallower answers.
-- **The planner searches for things it should already know**: check whether the question contains a word from the trigger list in `prompt/prompt.ts`, which forces a search. Triggers match whole words, so removing an over-eager entry is usually the fix.
+- **The planner searches for things it should already know**: run with `DEBUG_MODE=true` and read the `search decision` line, which prints the score and which signal groups fired. Adjust the offending group in `prompt/triggers.ts`.
+- **A question is answered without searching when it should have searched**: the same `search decision` line will say `skip`. Either the question read as definitional and carried no currency signal, or `skip_planner_for_static` is on and should be off.
+- **Most results are thrown away**: `DEBUG_MODE=true` prints a `result rejected` line per filtered result and a `page skipped` line per discarded page, each with its reason. HTTP errors, non-HTML documents, sign-in walls, error pages and link indexes are all excluded on purpose.
 - **`Export named 'connection' not found` from mongoose**: Bun resolves `connect`, `Schema`, and `model` as named exports of mongoose but not `connection`. Reach it off the default import, as `database/mongodb/mongodb.ts` does.
 - **Planner errors such as invalid JSON**: try a larger `QUERY_MODEL`. The response is parsed strictly against the schema and a parse failure aborts the loop.
 - **Chrome fails to launch or pages time out**: confirm Chrome is installed and, if Tor is enabled, that the Tor SOCKS proxy is running. Cloudflare Turnstile challenges are handled by `puppeteer-real-browser`, but some sites still block automated traffic.

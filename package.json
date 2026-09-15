@@ -7,7 +7,8 @@
     "@types/bun": "latest"
   },
   "scripts": {
-    "start": "bun run index.ts"
+    "start": "bun run index.ts",
+    "test": "bun test"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -16,7 +17,6 @@
     "@llamaindex/chroma": "^0.0.37",
     "@llamaindex/ollama": "^0.1.24",
     "@mowgly11/node-logger-js": "^0.0.3",
-    "cheerio": "^1.2.0",
     "chromadb": "^3.5.0",
     "llamaindex": "^0.12.1",
     "mongoose": "^9.9.4",

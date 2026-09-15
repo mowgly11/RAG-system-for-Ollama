@@ -1,118 +1,110 @@
 import type { RawData } from "../types/types";
-import Scraper, { type BrowserSession } from "./scraper";
+import Scraper, { preparePage, type BrowserSession, type ScraperPage } from "./scraper";
+import { extractArticleInPage, judgePage, NOISE_SELECTOR, type ExtractedPage } from "./extract";
 import { debugStep } from "../utils/debug";
 import config from "../config.json";
-import { load } from "cheerio";
 
-// text that means the page served a wall instead of an article
-const BLOCKED_MARKERS = [
-    "by clicking continue to join or sign in",
-    "sign in to continue",
-    "please enable javascript",
-    "enable javascript and cookies to continue",
-    "verify you are human",
-    "checking your browser before accessing",
-    "access denied",
-    "are you a robot"
-];
-
-const BLOCKED_MAX_LENGTH = 2000;
+const MIN_CANDIDATE_CHARACTERS = 140;
 
 /**
- * A short page carrying a sign-in or bot-check phrase is a wall, not content.
- * Long pages are left alone, since an article may quote these phrases in
- * passing.
+ * Reads one URL and returns its main text, or null with the reason logged.
+ *
+ * Extraction happens inside the page rather than by shipping the whole body
+ * HTML out to a parser. That sees the DOM the site's JavaScript produced, and
+ * moves only the extracted text across the wire instead of megabytes of markup.
  */
-function looksBlocked(text: string): boolean {
-    if (text.length > BLOCKED_MAX_LENGTH) return false;
+async function scrapeOne(page: ScraperPage, scraper: Scraper, url: string): Promise<RawData | null> {
+    const loaded = await scraper.openPage(url, page);
 
-    const haystack = text.toLowerCase();
+    if (!loaded.ok) {
+        debugStep("page skipped", { url, reason: loaded.error });
+        console.error(`Skipping ${url}: ${loaded.error}`);
+        return null;
+    }
 
-    return BLOCKED_MARKERS.some(marker => haystack.includes(marker));
-}
-
-function extractText(html: string): string {
-    const $ = load(html);
-
-    $('script, style, noscript, iframe, svg, footer, nav, header, input, button, form, head').remove();
-
-    // anchors are unwrapped rather than removed: the words inside a link are
-    // part of the sentence, and deleting the element deletes them too
-    $('a').each((_, element) => {
-        $(element).replaceWith($(element).text());
-    });
-
-    return $('body').text()
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, config.max_page_characters);
-}
-
-async function scrapeOne(session: BrowserSession, scraper: Scraper, url: string): Promise<RawData | null> {
-    const page = await session.browser.newPage();
+    let extracted: ExtractedPage;
 
     try {
-        const pageHTML = await scraper.getHTMLcontent(url, page);
-
-        if (!pageHTML.ok) {
-            debugStep("page skipped", { url, reason: "navigation failed" });
-            console.error(`Skipping ${url}: ${pageHTML.error}`);
-            return null;
-        }
-
-        const cleanData = extractText(pageHTML.data);
-
-        if (cleanData.length < config.min_page_characters) {
-            debugStep("page skipped", { url, reason: "too short", chars: cleanData.length });
-            console.error(`Skipping ${url}: too little text to be useful`);
-            return null;
-        }
-
-        if (looksBlocked(cleanData)) {
-            debugStep("page skipped", { url, reason: "sign-in or bot check" });
-            console.error(`Skipping ${url}: the page served a sign-in or bot check`);
-            return null;
-        }
-
-        debugStep("page scraped", { url, chars: cleanData.length });
-
-        return { url, data: cleanData };
-    } finally {
-        await page.close().catch(() => { /* already gone */ });
+        extracted = await page.evaluate(extractArticleInPage, {
+            maxChars: config.max_page_characters,
+            noise: NOISE_SELECTOR,
+            minCandidate: MIN_CANDIDATE_CHARACTERS
+        });
+    } catch (err) {
+        debugStep("page skipped", { url, reason: "extraction failed" });
+        console.error(`Skipping ${url}: the page could not be read (${err})`);
+        return null;
     }
+
+    const verdict = judgePage(extracted, config.min_page_characters);
+
+    if (!verdict.usable) {
+        debugStep("page skipped", { url, reason: verdict.reason, settled: loaded.data.settled });
+        console.error(`Skipping ${url}: ${verdict.reason}`);
+        return null;
+    }
+
+    debugStep("page scraped", {
+        url,
+        chars: extracted.text.length,
+        of: extracted.bodyLength,
+        via: extracted.strategy,
+        status: loaded.data.status
+    });
+
+    // the title is worth keeping: it names the page for the embedder
+    const body = extracted.title ? `${extracted.title}\n\n${extracted.text}` : extracted.text;
+
+    return { url, data: body.slice(0, config.max_page_characters) };
 }
 
 /**
- * Fetches the given URLs a few at a time. Sequential fetching made a single
- * question wait on every page in turn, which at the default navigation timeout
- * could run for minutes.
+ * Fetches the given URLs a few at a time, each on its own page so one slow
+ * site cannot hold up the rest.
  */
 export default async function getDataFromURLs(session: BrowserSession, urls: string[]): Promise<RawData[]> {
     const scraper = new Scraper();
     const queue = [...urls];
     const dataStore: RawData[] = [];
+    const reasons: Record<string, number> = {};
 
     const workerCount = Math.max(1, Math.min(config.scraper_concurrency, queue.length));
 
     const workers = Array.from({ length: workerCount }, async () => {
-        while (queue.length > 0) {
-            const url = queue.shift();
+        const page = await session.browser.newPage();
 
-            if (!url) break;
+        await preparePage(page);
 
-            try {
-                const scraped = await scrapeOne(session, scraper, url);
+        try {
+            while (queue.length > 0) {
+                const url = queue.shift();
 
-                if (scraped) dataStore.push(scraped);
-            } catch (err) {
-                console.error(`Skipping ${url}: ${err}`);
+                if (!url) break;
+
+                try {
+                    const scraped = await scrapeOne(page, scraper, url);
+
+                    if (scraped) dataStore.push(scraped);
+                    else reasons.skipped = (reasons.skipped ?? 0) + 1;
+                } catch (err) {
+                    reasons.failed = (reasons.failed ?? 0) + 1;
+                    console.error(`Skipping ${url}: ${err}`);
+                }
             }
+        } finally {
+            await page.close().catch(() => { /* already gone */ });
         }
     });
 
     await Promise.all(workers);
 
-    debugStep("scraping finished", { requested: urls.length, kept: dataStore.length, workers: workerCount });
+    debugStep("scraping finished", {
+        requested: urls.length,
+        kept: dataStore.length,
+        skipped: reasons.skipped ?? 0,
+        failed: reasons.failed ?? 0,
+        workers: workerCount
+    });
 
     return dataStore;
 }

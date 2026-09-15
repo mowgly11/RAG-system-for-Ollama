@@ -2,19 +2,31 @@
     "query_model_temperature": 0,
     "llm_temperature": 0.7,
     "context_window_size": 32768,
-
     "similarity_topk": 5,
     "similarity_topk_after_search": 12,
     "max_replayed_messages": 40,
-
+    "skip_planner_for_static": true,
     "headless_browser": false,
     "tor_proxy_enabled": false,
+    "block_page_resources": false,
     "page_timeout_ms": 20000,
+    "content_settle_ms": 4000,
     "scraper_concurrency": 3,
     "search_results_per_query": 3,
+    "max_results_per_domain": 2,
     "max_pages_per_turn": 8,
-    "search_request_delay_ms": 1200,
-
+    "search_request_delay_ms": 700,
     "min_page_characters": 200,
-    "max_page_characters": 20000
+    "max_page_characters": 20000,
+    "skip_domains": [
+        "linkedin.com",
+        "facebook.com",
+        "instagram.com",
+        "twitter.com",
+        "x.com",
+        "pinterest.com",
+        "quora.com",
+        "tiktok.com",
+        "threads.net"
+    ]
 }

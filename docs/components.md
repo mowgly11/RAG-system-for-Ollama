@@ -29,9 +29,12 @@ The chat engine is rebuilt each turn rather than once per session. That is what 
 
 - `prompt/prompt.ts`:
   - `getPrompt(type, replace?)`: Reads `prompt/prompts/<type>.txt` and applies optional term substitutions from a `ReplaceObject[]`.
-  - `toSearchQuery(message)`: The search planner. Picks `force_query` when the message contains a trigger word, otherwise `query`. Calls `QUERY_MODEL` with a JSON schema generated from the `SearchPlanSchema` `zod` definition and returns `{ needsSearch, queries }`. A forced search that comes back with no queries falls back to the question itself, so it cannot silently skip searching.
+  - `toSearchQuery(message)`: The search planner. Asks `classifyQuestion` first. A `skip` verdict returns "no search" without calling the model at all. Otherwise it calls `QUERY_MODEL` with a JSON schema generated from the `SearchPlanSchema` `zod` definition and returns `{ needsSearch, queries }`. A forced search that comes back with no queries falls back to the question itself, so it cannot silently skip searching.
   - `queryModel(...)`: Wraps the Ollama call. Separates three failure modes: the model being unreachable, a reply that is not JSON, and a reply that does not fit the schema. Each returns its own message rather than throwing.
-  - `definitelyNeedsSearch(input)`: Whole-word match against `SEARCH_TRIGGERS`. Word boundaries matter here. A substring test fires on ordinary questions, since "now" sits inside "know" and "top" inside "stop".
+- `prompt/triggers.ts`: `classifyQuestion(message)` decides whether the web is needed before the planner model is asked. It returns `force`, `skip`, or `ask`, along with the score and the signal groups that fired.
+  - Pasted links are stripped before scoring. A slug is not the asker's wording, and hyphens are word boundaries, so a URL ending in "the-current-price" used to force a search on its own.
+  - Signals are weighted, and phrases count for more than bare words. A flat word list over-fired, because one word is weak evidence. "live" appears in "how does live reload work", and "top" in "what is a top-level domain".
+  - `skip` is the conservative case. It needs a definitional marker and no currency signal whatsoever. It is what lets an obviously static question avoid the slowest step in a turn.
 - `prompt/prompts/system.txt`: System prompt for the answering chat engine.
 - `prompt/prompts/query.txt`: Instructs the planner to decide whether search is needed and how many queries to produce.
 - `prompt/prompts/force_query.txt`: Same output format but `needsSearch` is always `true`.
@@ -42,16 +45,26 @@ The planner uses its own Ollama client pointed at `OLLAMA_HOST`, rather than the
 
 - `scraper/scraper.ts`:
   - `Scraper.openBrowser()`: Launches Chrome with `--no-sandbox`, Turnstile handling, a 1280x1024 viewport, headless per `headless_browser`, and the Tor proxy when enabled.
-  - `Scraper.getHTMLcontent(url, page)`: Validates the URL scheme, navigates with `domcontentloaded` and an explicit `page_timeout_ms`, and returns the body's inner HTML. Navigation failures and empty bodies come back as errors rather than thrown.
+  - `Scraper.openPage(url, page)`: Navigates and reports `{ status, contentType, finalUrl, settled }`. The response status used to be discarded, so a 404 or a 503 was scraped and indexed as if it were an article. An error status or a non-HTML content type ends the page here, before anything tries to read it.
+  - `waitForContent(page, minChars, timeoutMs)`: Waits until the body actually has text. A server rendered page satisfies this at once. A client rendered page is empty at `DOMContentLoaded` and fills in later, which is why those used to be discarded as too short. `settled` reports whether the wait was met.
+  - `describeNavigationError(err)`: Turns Chrome's `ERR_*` strings into something a reader can act on, such as "the domain does not resolve".
+  - `preparePage(page)`: Sets the page timeout and, when `block_page_resources` is on, drops images, fonts, stylesheets and media before they are fetched. Best effort: if the driver already installed its own handler, scraping carries on unblocked.
   - `withBrowser(work)`: Opens a browser, runs `work` against it, and always closes it in a `finally`. Both scraping phases of a turn run inside one call, so a turn uses one browser instead of two and cannot leak a Chrome process when something throws.
   - `delay(ms)`: Small sleep helper used for pacing.
   - `ScraperBrowser` and `ScraperPage` are derived from what `connect()` returns. `puppeteer-real-browser` bundles its own puppeteer, whose types are not the same as the top-level `puppeteer` package.
-- `scraper/searchQueryScraper.ts`: `executeSeachQueries(session, queries)`. Loads the DuckDuckGo HTML endpoint for each query on one page, pacing requests by `search_request_delay_ms`, and returns unique URLs up to `max_pages_per_turn`.
+- `scraper/extract.ts`: Content extraction and page triage. The `*InPage` functions run inside the browser, so they must be self contained. Puppeteer serialises them, and everything they need arrives as an argument.
+  - `extractArticleInPage(options)`: Readability-style main content pick against the live DOM. Noise elements are removed, then candidate containers are scored by how much text they hold against how much of it is link text, with a bonus for `article` and `main` and for content-shaped class names, and a penalty for nav-shaped ones. Taking all of `body.innerText` drags in menus, cookie banners and related-article lists. It falls back to the body when no candidate holds enough of the page.
+  - `extractSearchResultsInPage(limit)`: Pulls result rows out of the DuckDuckGo HTML endpoint, skipping sponsored rows, and reports whether the page was a challenge or had no results.
+  - `judgePage(page, minCharacters)`: Decides whether an extracted page is worth indexing. Length alone is not enough, so the title and the leading text are checked for error and sign-in phrases, and a page that is mostly links is rejected. Two details keep real articles out of the net. The error-title pattern matches titles that are about an error rather than titles that merely contain the word, because "Error Handling in Rust" is a real article. And a marker only counts when it appears near the top, because an error page leads with that sentence while an article reaches it partway down.
+  - `NOISE_SELECTOR`: The elements that never carry the text we want.
+- `scraper/searchQueryScraper.ts`: `executeSeachQueries(session, queries)`. Loads the DuckDuckGo HTML endpoint for each query on one page, pacing requests by `search_request_delay_ms`, and returns the URLs worth fetching.
+  - Asks for several times more results than it needs, so filtering has something to fall back on.
+  - `rejectionReason(url, host, perDomain)`: Rejects a result before it costs a page load. Unreadable document types, hosts in `skip_domains`, and more than `max_results_per_domain` from one site are dropped here. Filtering at this point is far cheaper than fetching a sign-in wall and discarding it afterwards.
   - `unwrapResultURL(href)`: Reads the real target from the `uddg` query parameter using `URL`. String surgery on the href corrupts targets that contain encoded separators of their own.
-  - Prefers the `result__a` anchor and falls back to `result__snippet` if DuckDuckGo's markup changes.
-- `scraper/dataScraper.ts`: `getDataFromURLs(session, urls)`. Fetches URLs `scraper_concurrency` at a time using extra pages on the shared browser, each closed when its page is done.
-  - `extractText(html)`: Removes scripts, styles, navigation, and forms, then unwraps anchors into their text rather than deleting them. Removing an `a` element deletes the words inside it, which are part of the sentence. Output is capped at `max_page_characters`.
-  - `looksBlocked(text)`: Flags short pages carrying a sign-in or bot-check phrase, so login walls are not indexed as if they were answers. Long pages are exempt, since an article may quote such a phrase in passing.
+  - Tries the lighter `html.duckduckgo.com` endpoint first and retries on the main host when that answers with a challenge or nothing.
+- `scraper/dataScraper.ts`: `getDataFromURLs(session, urls)`. Fetches URLs `scraper_concurrency` at a time, one page per worker rather than one per URL, each closed when its worker is done.
+  - Extraction runs inside the page rather than by shipping the whole body HTML out to a parser. That sees the DOM the site's JavaScript produced, and moves only the extracted text across the wire.
+  - The page title is prepended to the text, since it names the page for the embedder.
 
 ## Storage and indexing
 
@@ -91,6 +104,13 @@ The planner uses its own Ollama client pointed at `OLLAMA_HOST`, rather than the
   - `IndexingSummary`: `{ successes, failures }` returned by bulk indexing.
   - `PromptType`, `ReplaceObject`: prompt selection and substitution.
   - `MessageRole`, `MessageRecord`, `ChatHistoryMessage`, `ConversationSummary`: conversation storage.
+
+## Tests
+
+- `tests/fixtures.ts`: The local HTTP server that stands in for the web, plus the probes that let a suite skip when MongoDB, Chroma, or Ollama is not running. Its pages are deliberately hostile. See `docs/setup.md` for the list.
+- `tests/*.test.ts`: One file per workflow step, plus `workflow.test.ts` for the whole chain under adversarial input.
+- `tests/debugProbe.ts`: Run as a subprocess by the debug tests, because the debug flag is read once at import and a single process cannot observe it both ways.
+- `unwrapResultURL`, `hostOf` and `rejectionReason` are exported from `scraper/searchQueryScraper.ts` so the filter rules can be tested directly. They are not used elsewhere in the app.
 
 ## Notes
 

@@ -15,6 +15,14 @@ bun install
 bun run start
 ```
 
+Run the test suite:
+
+```bash
+bun test
+```
+
+The tests need Chrome, which the scraper already requires. A local server stands in for the web, so they need no network. Tests that need MongoDB, Chroma, or Ollama skip themselves when that service is not running.
+
 ## Documentation
 
 - Overview and request flow: `docs/overview.md`
@@ -32,6 +40,7 @@ bun run start
 - `database/chroma/`: Chroma storage context and document indexer
 - `database/mongodb/`: MongoDB connection, conversation store, and the two schemas
 - `types/`: shared TypeScript types
-- `utils/`: terminal input, loading spinner, and the `{ error, data }` result helper
+- `utils/`: terminal input, loading spinner, debug logging, and the result helper
+- `tests/`: unit tests per workflow step, plus an end-to-end run against deliberately hostile pages
 
 This project was bootstrapped with `bun init`.
