@@ -126,7 +126,7 @@ async function pickConversation(): Promise<string | null> {
  * Searches, scrapes and indexes for one question, using a single browser that
  * is always closed afterwards. Returns the URLs that were indexed.
  */
-async function gatherSources(bundle: IndexBundle, queries: string[]): Promise<string[]> {
+async function gatherSources(bundle: IndexBundle, question: string, queries: string[]): Promise<string[]> {
     console.log(`Searching the web (${queries.length} queries)...`);
 
     const gathered = await withBrowser(async (session) => {
@@ -136,7 +136,7 @@ async function gatherSources(bundle: IndexBundle, queries: string[]): Promise<st
 
         console.log(`Reading ${urls.length} pages...`);
 
-        return await getDataFromURLs(session, urls);
+        return await getDataFromURLs(session, urls, question);
     });
 
     if (!gathered.ok) {
@@ -222,7 +222,7 @@ async function main() {
 
         // the spinner only runs around the model call, because search and
         // indexing print progress of their own and the two used to collide
-        const sources = searchPerformed ? await gatherSources(bundle, plan.data.queries) : [];
+        const sources = searchPerformed ? await gatherSources(bundle, query, plan.data.queries) : [];
 
         // written before the model answers, so the question survives a failed reply
         await saveMessage({

@@ -262,6 +262,54 @@ describe("extraction: structure is measured, not guessed", () => {
     });
 });
 
+describe("cleanup: furniture is removed before anything is judged", () => {
+    test("consent banners, modals, newsletters and paywall meters are stripped", async () => {
+        const extracted = await read("/furnished");
+
+        expect(extracted.text).toContain("halves the remaining range");
+        expect(extracted.text).not.toContain("We use cookies");
+        expect(extracted.text).not.toContain("Join our list");
+        expect(extracted.text).not.toContain("Weekly digest");
+        expect(extracted.text).not.toContain("free articles");
+    });
+
+    test("interface words sitting as plain lines are dropped", async () => {
+        const extracted = await read("/chrome-lines");
+
+        expect(extracted.text).toContain("halves the remaining range");
+        expect(extracted.text).toContain("A Real Heading");
+
+        for (const chrome of ["Sign in", "Subscribe", "Accept all cookies", "Advertisement", "Back to top"]) {
+            expect(extracted.text).not.toContain(chrome);
+        }
+    });
+
+    test("an article about signing in keeps its sentences", async () => {
+        // the line filter must only ever remove a whole line of chrome, never
+        // words inside prose
+        const extracted = await read("/about-signing-in");
+
+        expect(extracted.text).toContain("clicks sign in, the server issues a session cookie");
+        expect(extracted.text).toContain("A subscribe button posts to a different endpoint");
+        expect(judgePage(extracted, config.min_page_characters).usable).toBe(true);
+    });
+});
+
+describe("triage: the padded login wall", () => {
+    test("a wall padded past the old length ceiling is now rejected", async () => {
+        // this is the case that was knowingly left open. Structure guards real
+        // articles now, so the ceiling that let this through is gone.
+        const verdict = judgePage(await read("/wall-long"), config.min_page_characters);
+
+        expect(verdict.usable).toBe(false);
+        if (!verdict.usable) expect(verdict.reason).toContain("sign-in or bot check");
+    });
+
+    test("a long article that merely quotes a wall phrase is still kept", async () => {
+        expect(judgePage(await read("/about-errors"), config.min_page_characters).usable).toBe(true);
+    });
+});
+
 describe("triage: a title that sounds like an error", () => {
     const verdict = async (path: string) => judgePage(await read(path), config.min_page_characters);
 

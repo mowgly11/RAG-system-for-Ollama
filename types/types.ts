@@ -1,4 +1,4 @@
-export type PromptType = "system" | "query" | "force_query";
+export type PromptType = "system" | "query" | "force_query" | "relevance";
 
 export type ReplaceObject = {
     term: string;
@@ -17,6 +17,12 @@ export type FunctionResponse<T = unknown> = Success<T> | Failure;
 export type RawData = {
     url: string;
     data: string;
+}
+
+/** What the relevance gate decided about one page, and why. */
+export type RelevanceVerdict = {
+    relevant: boolean;
+    reason: string;
 }
 
 export type SearchPlan = {

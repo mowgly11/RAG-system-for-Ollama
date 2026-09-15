@@ -134,12 +134,25 @@ describe("page triage: structure outranks wording", () => {
     });
 });
 
-describe("page triage: known blind spot", () => {
-    test("a long login wall gets through, by design", () => {
-        // marker checks only apply to short pages, because a real article may
-        // quote these phrases. A wall padded past the limit is not caught.
+describe("page triage: the padded wall, closed", () => {
+    test("a wall padded past the old length ceiling is rejected", () => {
+        // the ceiling existed to protect real articles from phrase matching.
+        // Structure does that better, so leading with a wall phrase is now
+        // decisive however much filler follows it.
         const padded = "Sign in to continue reading this article. " + "word ".repeat(600);
-        expect(judgePage(page({ text: padded }), MIN).usable).toBe(true);
+        expect(reason({ text: padded })).toContain("sign-in or bot check");
+    });
+
+    test("padding plus real article structure still gets through", () => {
+        // an article is never rejected on wording alone, which is the whole
+        // point. A wall that builds itself sections and paragraphs wins, and
+        // that is what the relevance gate is for.
+        const padded = "Sign in to continue reading this article. " + "word ".repeat(600);
+        expect(reason({ text: padded, paragraphs: 6, headings: 3 })).toBeNull();
+    });
+
+    test("a long article quoting a wall phrase partway down is unaffected", () => {
+        expect(reason({ text: "word ".repeat(600) + " sign in to continue " + "word ".repeat(600) })).toBeNull();
     });
 });
 

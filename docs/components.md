@@ -14,7 +14,7 @@ result.data // typed, and known to exist
 
 - `index.ts`: Configures `llamaindex` `Settings` with the Ollama embedding model and the answering LLM, both pointed at `OLLAMA_HOST`. On start it connects to MongoDB, opens the Chroma index, resolves which conversation to work in, and replays that chat's recent history. Each turn reads a question, runs the search planner, gathers and indexes sources when required, saves the question, builds the chat engine for that turn, then prints and saves the answer.
   - `pickConversation()`: Lists recent conversations and reads the user's choice. Returns the chat ID to work in, creating a new conversation when the user declines, gives an invalid answer, or has no history yet. Returns `null` only when the conversation could not be created.
-  - `gatherSources(bundle, queries)`: Runs search, scraping, and indexing for one question inside a single browser, and returns the URLs that were indexed.
+  - `gatherSources(bundle, question, queries)`: Runs search, scraping, and indexing for one question inside a single browser, and returns the URLs that were indexed. The question travels with it because the relevance gate needs something to judge against.
   - `fitTitle(title)`: Pads a title to the picker's column width, or shortens it with an ellipsis.
   - `toText(content)`: Flattens a chat reply into a plain string. The engine may answer with text or with a list of content parts.
 
@@ -35,6 +35,12 @@ The chat engine is rebuilt each turn rather than once per session. That is what 
   - Pasted links are stripped before scoring. A slug is not the asker's wording, and hyphens are word boundaries, so a URL ending in "the-current-price" used to force a search on its own.
   - Signals are weighted, and phrases count for more than bare words. A flat word list over-fired, because one word is weak evidence. "live" appears in "how does live reload work", and "top" in "what is a top-level domain".
   - `skip` is the conservative case. It needs a definitional marker and no currency signal whatsoever. It is what lets an obviously static question avoid the slowest step in a turn.
+- `prompt/relevance.ts`: The last gate a scraped page faces, and the only expensive one.
+  - `termOverlap(question, pageText)`: How much of the question's salient vocabulary appears in the page, from 0 to 1. Free, and good enough to decide who is worth a model call. Stopwords are excluded, since keeping them would make every page look like a match.
+  - `judgeRelevance(question, title, text)`: Asks `QUERY_MODEL` whether the page helps answer the question, showing it the title and the first `relevance_sample_characters` only. Output is constrained to a boolean and a short reason by a JSON schema. Every failure path returns an error rather than a verdict.
+  - `shouldKeep(question, title, text)`: What the scraper calls. Runs the free check first, so the model is only asked about pages that already look doubtful, and **fails open**: a timeout, an unreachable model, or an unparseable answer all keep the page. A page dropped here is gone without the asker ever learning why.
+  - The page travels as delimited user content, never spliced into the instructions, so it cannot rewrite the job it is being judged for. Scraped text is exactly where an instruction aimed at the judge would arrive.
+- `prompt/prompts/relevance.txt`: Instructions for that judgement. It says the page is untrusted data, tells the model to answer true when unsure, and lists what counts as worth discarding.
 - `prompt/prompts/system.txt`: System prompt for the answering chat engine.
 - `prompt/prompts/query.txt`: Instructs the planner to decide whether search is needed and how many queries to produce.
 - `prompt/prompts/force_query.txt`: Same output format but `needsSearch` is always `true`.
@@ -58,16 +64,17 @@ The planner uses its own Ollama client pointed at `OLLAMA_HOST`, rather than the
   - `judgePage(page, minCharacters)`: Decides whether an extracted page is worth indexing. Length alone is not enough, so the title and the leading text are checked for error and sign-in phrases, and a page that is mostly links is rejected. Three details keep real articles out of the net.
     - The error-title pattern matches titles that are about an error rather than titles that merely contain the word, because "Error Handling in Rust" is a real article.
     - A marker only counts when it appears near the top, because an error page leads with that sentence while an article reaches it partway down.
-    - **Structure outranks wording.** A page built like an article is never rejected for its phrasing, in the title or the body. Wording is the one thing a page controls freely, so it is the weakest evidence available. This is what keeps "403 Forbidden: 9 Ways to Fix It" indexable, and what stops a writer repelling the scraper by opening with "access denied". Four paragraphs, or two headings, or a code snippet with a couple of paragraphs, clears the bar. A genuine error page dressed up with a single heading does not.
+    - **Structure outranks wording.** A page built like an article is never rejected for its phrasing, in the title or the body. This replaced a length ceiling on the phrase checks, which is how a login wall padded past 2000 characters used to get in. Wording is the one thing a page controls freely, so it is the weakest evidence available. This is what keeps "403 Forbidden: 9 Ways to Fix It" indexable, and what stops a writer repelling the scraper by opening with "access denied". Four paragraphs, or two headings, or a code snippet with a couple of paragraphs, clears the bar. A genuine error page dressed up with a single heading does not.
 
     The length, link density and HTTP status checks are unaffected by structure, so a structured page that is empty, mostly links, or served with an error status is still rejected.
-  - `NOISE_SELECTOR`: The elements that never carry the text we want.
+  - `NOISE_SELECTOR`: The elements that never carry the text we want, including dialogs, paywalls, registration walls, consent banners and newsletter boxes. The attribute matches are deliberately narrow: a bare match on "cookie" or "modal" would take real content with it, since a recipe site has cookies and plenty of pages wrap an article in something called a modal.
+  - Interface words that survive element stripping, because they sit as plain text in the flow, are dropped line by line inside the extractor. Line by line matters: an article about session cookies keeps every sentence that mentions signing in.
 - `scraper/searchQueryScraper.ts`: `executeSeachQueries(session, queries)`. Loads the DuckDuckGo HTML endpoint for each query on one page, pacing requests by `search_request_delay_ms`, and returns the URLs worth fetching.
   - Asks for several times more results than it needs, so filtering has something to fall back on.
   - `rejectionReason(url, host, perDomain)`: Rejects a result before it costs a page load. Unreadable document types, hosts in `skip_domains`, and more than `max_results_per_domain` from one site are dropped here. Filtering at this point is far cheaper than fetching a sign-in wall and discarding it afterwards.
   - `unwrapResultURL(href)`: Reads the real target from the `uddg` query parameter using `URL`. String surgery on the href corrupts targets that contain encoded separators of their own.
   - Tries the lighter `html.duckduckgo.com` endpoint first and retries on the main host when that answers with a challenge or nothing.
-- `scraper/dataScraper.ts`: `getDataFromURLs(session, urls)`. Fetches URLs `scraper_concurrency` at a time, one page per worker rather than one per URL, each closed when its worker is done.
+- `scraper/dataScraper.ts`: `getDataFromURLs(session, urls, question?)`. Fetches URLs `scraper_concurrency` at a time, one page per worker rather than one per URL, each closed when its worker is done. The question is optional: without one there is nothing to judge relevance against, so the gate is skipped entirely.
   - Extraction runs inside the page rather than by shipping the whole body HTML out to a parser. That sees the DOM the site's JavaScript produced, and moves only the extracted text across the wire.
   - The page title is prepended to the text, since it names the page for the embedder.
 
@@ -115,6 +122,9 @@ The planner uses its own Ollama client pointed at `OLLAMA_HOST`, rather than the
 - `tests/fixtures.ts`: The local HTTP server that stands in for the web, plus the probes that let a suite skip when MongoDB, Chroma, or Ollama is not running. Its pages are deliberately hostile. See `docs/setup.md` for the list.
 - `tests/*.test.ts`: One file per workflow step, plus `workflow.test.ts` for the whole chain under adversarial input.
 - `tests/debugProbe.ts`: Run as a subprocess by the debug tests, because the debug flag is read once at import and a single process cannot observe it both ways.
+- `tests/relevanceProbe.ts`: Run as a subprocess by the relevance tests, for the same reason. The Ollama client is built once at import, so a single process cannot see both a working host and a dead one.
+- `tests/relevanceConsistency.test.ts`: Measures how much the judge agrees with itself. Opt in with `bun run test:consistency`, since it needs Ollama and takes minutes. Every check is a rate over repeated runs, because asserting that a model always answers X produces a flaky test.
+- `termOverlap` and `judgeRelevance` are exported from `prompt/relevance.ts` so each half of the gate can be tested on its own.
 - `unwrapResultURL`, `hostOf` and `rejectionReason` are exported from `scraper/searchQueryScraper.ts` so the filter rules can be tested directly. They are not used elsewhere in the app.
 
 ## Notes

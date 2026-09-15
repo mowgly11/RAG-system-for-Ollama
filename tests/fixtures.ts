@@ -159,6 +159,55 @@ export const ROUTES: Record<string, Route> = {
         </main></body></html>`
     },
 
+    // an article wrapped in the furniture that element stripping should remove
+    "/furnished": {
+        body: `<html><head><title>Sorting Algorithms</title></head><body>
+            <div class="cookie-consent-banner"><p>We use cookies. ${"Consent text. ".repeat(20)}</p></div>
+            <div role="dialog" aria-modal="true"><p>Join our list! ${"Modal pitch. ".repeat(20)}</p></div>
+            <div class="newsletter-signup"><p>Weekly digest. ${"Signup pitch. ".repeat(20)}</p></div>
+            <div class="paywall-meter"><p>You have read 3 free articles. ${"Paywall text. ".repeat(20)}</p></div>
+            <article class="post-content">
+                <h1>Sorting Algorithms</h1>
+                <p>${PROSE.repeat(4)}</p>
+                <h2>Comparison sorts</h2>
+                <p>${PROSE.repeat(4)}</p>
+                <p>${PROSE.repeat(4)}</p>
+                <p>${PROSE.repeat(4)}</p>
+            </article></body></html>`
+    },
+
+    // interface words sitting as plain text inside the article flow
+    "/chrome-lines": {
+        body: `<html><head><title>Chrome Lines</title></head><body><article>
+            <h1>A Real Heading</h1>
+            <div>Sign in</div>
+            <div>Subscribe</div>
+            <div>Accept all cookies</div>
+            <div>Share</div>
+            <div>Advertisement</div>
+            <p>${PROSE.repeat(4)}</p>
+            <h2>Another Section</h2>
+            <div>Read more</div>
+            <div>Back to top</div>
+            <p>${PROSE.repeat(4)}</p>
+            <p>${PROSE.repeat(4)}</p>
+            <p>${PROSE.repeat(4)}</p>
+        </article></body></html>`
+    },
+
+    // an article that legitimately discusses signing in, which the line filter
+    // must not shred: the words appear inside sentences, not as bare lines
+    "/about-signing-in": {
+        body: `<html><head><title>How Session Cookies Work</title></head><body><article>
+            <h1>How Session Cookies Work</h1>
+            <p>When a user clicks sign in, the server issues a session cookie and the browser stores it. ${PROSE.repeat(3)}</p>
+            <h2>Why subscribe flows differ</h2>
+            <p>A subscribe button posts to a different endpoint, but the cookie mechanics are identical. ${PROSE.repeat(3)}</p>
+            <p>${PROSE.repeat(3)}</p>
+            <p>${PROSE.repeat(3)}</p>
+        </article></body></html>`
+    },
+
     "/linkfarm": {
         body: `<html><head><title>Tag Index</title></head><body><main>` +
             Array.from({ length: 70 }, (_, i) => `<a href="/p${i}">Some fairly long link title number ${i}</a> `).join("") +

@@ -35,13 +35,38 @@ export type SearchHarvest = {
     challenged: boolean;
 }
 
-/** Elements that never carry the text we want. */
+/**
+ * Elements that never carry the text we want.
+ *
+ * Attribute matches are deliberately specific. A bare `[class*="modal"]` or
+ * `[class*="cookie"]` would take real content with it: a recipe site has
+ * cookies, and plenty of pages wrap an article in something called a modal.
+ */
 export const NOISE_SELECTOR = [
     "script", "style", "noscript", "iframe", "svg", "canvas", "template",
     "nav", "header", "footer", "aside", "form", "button", "input", "select",
     "textarea", "video", "audio", "figure figcaption",
     "[aria-hidden='true']", "[hidden]", "[role='navigation']", "[role='banner']",
-    "[role='contentinfo']", "[role='search']", "[role='alert']"
+    "[role='contentinfo']", "[role='search']", "[role='alert']",
+
+    // overlays and dialogs, which is where walls and consent prompts live
+    "[role='dialog']", "[aria-modal='true']",
+    "[class*='modal-overlay' i]", "[class*='overlay-modal' i]",
+    "[class*='login-modal' i]", "[class*='signup-modal' i]", "[class*='subscribe-modal' i]",
+
+    // paywalls and registration walls
+    "[class*='paywall' i]", "[id*='paywall' i]",
+    "[class*='regwall' i]", "[class*='registration-wall' i]",
+    "[class*='login-wall' i]", "[class*='signin-wall' i]", "[class*='auth-wall' i]",
+    "[class*='meter-banner' i]", "[class*='subscribe-banner' i]",
+
+    // consent and cookie notices
+    "[class*='cookie-banner' i]", "[class*='cookie-consent' i]", "[class*='cookieconsent' i]",
+    "[id*='cookie-banner' i]", "[id*='cookie-consent' i]", "[id*='onetrust' i]",
+    "[class*='consent-banner' i]", "[class*='gdpr' i]",
+
+    // signup furniture that sits inside articles
+    "[class*='newsletter' i]", "[class*='email-signup' i]"
 ].join(", ");
 
 /**
@@ -62,9 +87,27 @@ export function extractArticleInPage(options: { maxChars: number, noise: string,
             .replace(/\n{3,}/g, "\n\n")
             .trim();
 
+    /**
+     * Interface chrome that survives element stripping because it is plain
+     * text in the flow. Matched line by line, never across the document, so
+     * prose that happens to contain these words is untouched.
+     */
+    const CHROME = /^(sign ?in|sign ?up|log ?in|log ?out|login|logout|register|subscribe( now)?|accept( all)?( cookies)?|reject( all)?|manage (cookies|preferences|consent)|cookie (policy|settings)|privacy policy|terms of (use|service)|share|tweet|follow us|advertisement|sponsored|related( articles?| posts?)?|read more|continue reading|skip to (main )?content|menu|search|close|newsletter|get the app|download the app|comments?|back to top|print|save|copy link)$/i;
+
+    const CHROME_MAX = 60;
+
+    const dropChrome = (value: string): string =>
+        value
+            .split("\n")
+            .filter(line => {
+                const trimmed = line.trim();
+                return trimmed.length > CHROME_MAX || !CHROME.test(trimmed);
+            })
+            .join("\n");
+
     const textOf = (el: Element): string => {
         const value = (el as HTMLElement).innerText ?? el.textContent ?? "";
-        return normalize(value);
+        return normalize(dropChrome(normalize(value)));
     };
 
     const linkTextLength = (el: Element): number => {
@@ -268,9 +311,6 @@ const ERROR_TITLE = new RegExp([
     "\\bpage (isn.?t|is not) working\\b"
 ].join("|"), "i");
 
-/** Short pages carrying these phrases are walls. Long ones may just quote them. */
-const SHORT_PAGE_LIMIT = 2000;
-
 /**
  * How far in to look for those phrases.
  *
@@ -324,12 +364,18 @@ export function judgePage(page: ExtractedPage, minCharacters: number): PageVerdi
     // stops a writer repelling the scraper by opening with "access denied".
     const written = looksWritten(page);
 
-    // a short page whose opening line is the phrase, or a page so small that
-    // the phrase is most of it
-    const announces = (marker: string): boolean =>
-        !written
-        && text.length < SHORT_PAGE_LIMIT
-        && (haystack.lastIndexOf(marker, LEADING_WINDOW) !== -1 || (text.length < VERY_SHORT && haystack.includes(marker)));
+    // A page that leads with the phrase and is not built like an article is a
+    // wall or an error, however much filler follows it. There used to be a
+    // length ceiling here, which is exactly how a padded login wall got in:
+    // structure is the better guard for real articles, so the ceiling is gone.
+    const announces = (marker: string): boolean => {
+        if (written) return false;
+
+        if (haystack.lastIndexOf(marker, LEADING_WINDOW) !== -1) return true;
+
+        // or the page is so small that the phrase is most of it
+        return text.length < VERY_SHORT && haystack.includes(marker);
+    };
 
     const blocked = BLOCKED_MARKERS.find(announces);
 

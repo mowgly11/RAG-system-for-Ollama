@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-09-16 (content filtering and a relevance gate)
+
+Four free checks and one paid one, ordered cheapest first so the model is
+reached rarely.
+
+### Fixed
+
+- **The padded login wall is closed.** A wall that padded itself past 2000 characters used to get indexed, and was knowingly left that way. The phrase checks carried a length ceiling to stop them rejecting real articles. Structure does that job better now, so the ceiling is gone: a page that leads with a wall phrase and is not built like an article is rejected however much filler follows it. The test that recorded this as a known blind spot now asserts the opposite.
+
+### Added
+
+- **Element removal for the furniture that carries walls.** Dialogs, paywall meters, registration walls, consent banners and newsletter boxes are stripped before anything reads the page. The attribute matches are deliberately narrow: a bare match on "cookie" or "modal" would take real content with it, since a recipe site has cookies and plenty of pages wrap an article in something called a modal.
+- **Line-level boilerplate filtering.** Interface words that survive element stripping, because they sit as plain text in the flow, are dropped line by line. Line by line is the whole point: an article about session cookies keeps every sentence that mentions signing in, which a regex over the whole document would have shredded.
+- **A relevance gate**, in `prompt/relevance.ts`, with a free half and a paid half.
+  - `termOverlap` measures how much of the question's vocabulary the page shares, ignoring stopwords. At or above `relevance_overlap_threshold` the page is kept outright, so the model is never asked about a page that is obviously on topic.
+  - `judgeRelevance` asks `QUERY_MODEL` about the rest, showing it the title and the first `relevance_sample_characters` rather than the whole page. Output is constrained to a boolean and a short reason by a JSON schema.
+  - **It fails open.** A timeout, an unreachable model, or an unparseable answer all keep the page. A page dropped here is gone without the asker ever learning why, so an uncertain gate must not delete sources.
+  - The page travels as delimited user content and the prompt says to treat it as data, because scraped text is exactly where an instruction aimed at the judge would arrive.
+- New `config.json` keys: `relevance_check_enabled`, `relevance_overlap_threshold`, `relevance_sample_characters`, `relevance_timeout_ms`.
+- **A judge consistency suite**, `bun run test:consistency`. It repeats each case and reports a rate rather than asserting a single verdict, because a test that says a model always answers X is itself flaky. It covers the same page repeated, the same question reworded, a short page against a long one, a sign-in wall, and a page containing instructions that tell the judge what to answer. Opt in with `RUN_CONSISTENCY=1`, since it needs Ollama and takes minutes.
+
+### Changed
+
+- `getDataFromURLs` takes an optional question. Without one there is nothing to judge relevance against, so the gate is skipped.
+- The debug log reports the overlap score, whether the model was asked, and the verdict with its reason.
+
+### Notes
+
+- **The relevance gate is not there to pick the best page.** Retrieval already ranks for relevance at query time. The gate exists to keep junk out of the index, where it costs embedding time and crowds the results.
+- The suite is now 281 tests. 269 pass and 12 skip on a machine running only MongoDB.
+- Ollama was not running while this was built, so the live half of the gate and the consistency suite are type-checked, wired, and verified to skip, but have never been exercised against a real model. The free half, the fail-open path, and the four cheap layers are all tested and passing.
+
+---
+
 ## [Unreleased] - 2026-09-15 (structure beats wording)
 
 ### Changed

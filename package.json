@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "bun run index.ts",
-    "test": "bun test --timeout 30000"
+    "test": "bun test --timeout 30000",
+    "test:consistency": "RUN_CONSISTENCY=1 bun test --timeout 900000 tests/relevanceConsistency.test.ts"
   },
   "peerDependencies": {
     "typescript": "^5"

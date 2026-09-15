@@ -1,6 +1,7 @@
 import type { RawData } from "../types/types";
 import Scraper, { preparePage, type BrowserSession, type ScraperPage } from "./scraper";
 import { extractArticleInPage, judgePage, NOISE_SELECTOR, type ExtractedPage } from "./extract";
+import { shouldKeep } from "../prompt/relevance";
 import { debugStep } from "../utils/debug";
 import config from "../config.json";
 
@@ -13,7 +14,7 @@ const MIN_CANDIDATE_CHARACTERS = 140;
  * HTML out to a parser. That sees the DOM the site's JavaScript produced, and
  * moves only the extracted text across the wire instead of megabytes of markup.
  */
-async function scrapeOne(page: ScraperPage, scraper: Scraper, url: string): Promise<RawData | null> {
+async function scrapeOne(page: ScraperPage, scraper: Scraper, url: string, question?: string): Promise<RawData | null> {
     const loaded = await scraper.openPage(url, page);
 
     if (!loaded.ok) {
@@ -44,6 +45,16 @@ async function scrapeOne(page: ScraperPage, scraper: Scraper, url: string): Prom
         return null;
     }
 
+    // the last gate, and the only expensive one. It runs on what survived
+    // everything free, and it keeps the page whenever it cannot decide.
+    const relevance = await shouldKeep(question, extracted.title, extracted.text);
+
+    if (!relevance.keep) {
+        debugStep("page skipped", { url, reason: `not relevant: ${relevance.reason}` });
+        console.error(`Skipping ${url}: not relevant to the question (${relevance.reason})`);
+        return null;
+    }
+
     debugStep("page scraped", {
         url,
         chars: extracted.text.length,
@@ -64,7 +75,7 @@ async function scrapeOne(page: ScraperPage, scraper: Scraper, url: string): Prom
  * Fetches the given URLs a few at a time, each on its own page so one slow
  * site cannot hold up the rest.
  */
-export default async function getDataFromURLs(session: BrowserSession, urls: string[]): Promise<RawData[]> {
+export default async function getDataFromURLs(session: BrowserSession, urls: string[], question?: string): Promise<RawData[]> {
     const scraper = new Scraper();
     const queue = [...urls];
     const dataStore: RawData[] = [];
@@ -84,7 +95,7 @@ export default async function getDataFromURLs(session: BrowserSession, urls: str
                 if (!url) break;
 
                 try {
-                    const scraped = await scrapeOne(page, scraper, url);
+                    const scraped = await scrapeOne(page, scraper, url, question);
 
                     if (scraped) dataStore.push(scraped);
                     else reasons.skipped = (reasons.skipped ?? 0) + 1;

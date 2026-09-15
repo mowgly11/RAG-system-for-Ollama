@@ -26,11 +26,24 @@ Every session goes through the following steps in `index.ts`.
 3. **History replay.** The most recent messages of the chosen chat are loaded in order, up to `max_replayed_messages`, and given to the chat engine as its prior history. The cap keeps a long chat from overflowing `context_window_size`.
 4. **Search decision.** `classifyQuestion` in `prompt/triggers.ts` scores the question against weighted signals and returns one of three outcomes. `force` searches without asking. `skip` answers from knowledge without calling the planner at all. `ask` hands the decision to the `QUERY_MODEL`, which must return JSON matching `{ needsSearch: boolean, queries: string[] }`, enforced through a JSON schema derived from a `zod` definition.
 5. **Web search.** One browser is opened for the whole turn. `executeSeachQueries` in `scraper/searchQueryScraper.ts` loads the DuckDuckGo HTML endpoint for each query, pausing `search_request_delay_ms` between queries, and reads the result rows inside the page. Results are filtered before they cost anything: unreadable document types, hosts in `skip_domains`, and more than `max_results_per_domain` from one site are all dropped. The turn stops at `max_pages_per_turn` URLs.
-6. **Page scraping.** `getDataFromURLs` in `scraper/dataScraper.ts` visits those links `scraper_concurrency` at a time on the same browser. Each response is checked before it is read: an HTTP error status or a non-HTML content type ends that page there. Text is then extracted inside the page, picking the container that holds the most prose relative to its link text rather than taking the whole body. Pages that are too short, mostly links, an error page, or a sign-in wall are dropped. The browser is always closed, including when a page throws.
+6. **Page scraping.** `getDataFromURLs` in `scraper/dataScraper.ts` visits those links `scraper_concurrency` at a time on the same browser. Each response is checked before it is read: an HTTP error status or a non-HTML content type ends that page there. Text is then extracted inside the page, picking the container that holds the most prose relative to its link text rather than taking the whole body. Consent banners, modals, paywall meters and newsletter boxes are removed as elements, and interface words left loose in the text are dropped line by line. Pages that are too short, mostly links, an error page, or a sign-in wall are dropped. What survives all of that faces one last gate, described below. The browser is always closed, including when a page throws.
 7. **Indexing.** Each page becomes a `Document` whose id is the normalized URL (hash removed, `utm_*` parameters removed, trailing slash removed). Before inserting, every chunk previously stored for that URL is deleted from the collection, so re-scraping replaces a page rather than adding a second copy of it.
 8. **Answering and saving.** The user message is written to MongoDB before the model runs, so a question survives a failed reply. The chat engine is built for the turn, retrieving `similarity_topk_after_search` chunks when pages were just indexed and `similarity_topk` otherwise. The reply is printed and saved with the URLs that were indexed for that turn.
 
 If the planner decides no search is needed, steps 5 to 7 are skipped and the question is answered from whatever is already in the index plus model knowledge.
+
+## Deciding whether a page is worth keeping
+
+Four checks run in order, cheapest first, so the expensive one is reached rarely.
+
+1. **Element removal.** Scripts, navigation, dialogs, paywalls and consent banners never reach the text.
+2. **Line filtering.** Interface words such as "Sign in" or "Accept all cookies", sitting as their own line, are dropped. Matching is line by line, so an article that discusses signing in keeps its sentences.
+3. **Triage.** Length, link density, HTTP status, and error or wall phrasing, with structure outranking wording throughout.
+4. **Relevance.** How much of the question's vocabulary the page shares. At or above `relevance_overlap_threshold` the page is kept outright. Below it, the small model is asked whether the page helps answer the question, seeing only the title and the first `relevance_sample_characters`.
+
+The model step fails open. If it times out, cannot be reached, or answers something unparseable, the page is kept. A page dropped here is gone without the asker ever learning why, so an uncertain gate must not delete sources. The page travels inside delimiters as user content and the prompt says to treat it as data, because scraped text is exactly where an instruction aimed at the judge would arrive.
+
+Retrieval already ranks for relevance at query time, so this gate is not there to pick the best page. It is there to keep junk out of the index, where it would cost embedding time and crowd the results.
 
 ## What is stored per turn
 
@@ -43,7 +56,8 @@ Set `DEBUG_MODE=true` to print every step of the flow above with the time it too
 ## Current limitations
 
 - The browser runs headed by default, because `puppeteer-real-browser` evades bot checks better that way. Set `headless_browser` to `true` to hide it, at the cost of being blocked more often.
-- Blocked-page and error-page detection weigh three things: the HTTP status, the wording, and the shape of the page. Wording counts for the least, because it is the one thing a page controls freely, so a page built like an article is never rejected on phrasing alone. A wall or an error worded unusually, served as HTTP 200, and given enough paragraphs and headings to pass for an article, can still get through.
+- Blocked-page and error-page detection weigh three things: the HTTP status, the wording, and the shape of the page. Wording counts for the least, because it is the one thing a page controls freely, so a page built like an article is never rejected on phrasing alone. A wall that gives itself enough paragraphs and headings to pass for an article still gets past triage, which is where the relevance gate earns its place.
+- The relevance gate is a small model answering yes or no, and small models are not consistent. `bun run test:consistency` measures how much yours agrees with itself. The gate fails open, so its mistakes cost a kept page far more often than a lost one.
 - Main content extraction scores containers by text against link density. It suits articles and documentation. A page whose value is a table or a list of links will score badly and may be dropped.
 - A client rendered page is given `content_settle_ms` to put text on screen. A site slower than that still yields nothing.
 - Only the ten most recent conversations are offered at startup. There is no search over past chats and no way to resume one by typing its chat ID.

@@ -65,6 +65,7 @@ Chrome is the only hard requirement, and the scraper already needs it. A local H
 | `tests/prompt.test.ts` | Template loading, substitution, and a missing or traversing path. |
 | `tests/indexer.test.ts` | Document identity, so one page cannot become several documents. |
 | `tests/scraping.test.ts` | Navigation and extraction in a real browser: status codes, content types, the wait for client rendered pages, and result parsing. |
+| `tests/relevance.test.ts` | Term overlap, and that the gate fails open when the model is unreachable. |
 | `tests/conversations.test.ts` | The MongoDB store, including injection-shaped input. Needs MongoDB. |
 | `tests/workflow.test.ts` | The whole chain end to end against hostile pages and misleading questions. |
 | `tests/fixtures.ts` | The local server and its pages. Not a test file. |
@@ -73,7 +74,17 @@ Some of those pages exist to attack the triage from both sides. A troubleshootin
 
 The fixture server serves pages built to break things: a soft 404 returned as HTTP 200, an error body under a friendly title, a login wall, a login wall padded long enough to slip past the wall check, a page whose article is buried in wrapper divs, hidden keyword stuffing, a page that renders only after a delay, a shell that never renders, a page far past the size cap, and a results page seeded with sponsored rows, `javascript:` links and sign-in-wall domains.
 
-Three tests currently skip on a machine with only MongoDB running. Two need Ollama for the live planner, and one is the placeholder that reports MongoDB was unavailable.
+Twelve tests skip on a machine with only MongoDB running: the live planner, the live relevance gate, and the consistency suite all need Ollama.
+
+### Judge consistency
+
+The relevance gate asks a small model a yes or no question, and a small model is the least predictable part of the pipeline. That is measured rather than assumed:
+
+```bash
+bun run test:consistency
+```
+
+It needs Ollama and takes minutes, so it is opt in and excluded from the normal run. It repeats each case and reports a rate, never a single verdict, because a test asserting that a model always answers X is itself flaky. It checks the same page repeated, the same question reworded, a short page against a long one, a sign-in wall, and a page that contains instructions telling the judge what to answer. Raise the sample with `REPEATS=9`. The run prints what your model actually did, so the numbers are the point as much as the pass or fail.
 
 ## Debug mode
 
@@ -145,6 +156,10 @@ Models and retrieval:
 | `similarity_topk` | `5` | Chunks retrieved per question when no search ran. |
 | `similarity_topk_after_search` | `12` | Chunks retrieved on a turn that just indexed pages, so fresh pages are not crowded out by older ones. |
 | `max_replayed_messages` | `40` | How many of a conversation's most recent messages are replayed into the model. |
+| `relevance_check_enabled` | `true` | Ask the small model whether a scraped page is worth keeping for the question. Only reached by pages that survive every free check and still look doubtful. |
+| `relevance_overlap_threshold` | `0.4` | How much of the question's vocabulary a page must share to be kept without asking the model. Raise it to ask more often, lower it to ask less. |
+| `relevance_sample_characters` | `1500` | How much of a page the model is shown. The whole page would make the model the entire turn. |
+| `relevance_timeout_ms` | `20000` | How long to wait for a verdict before keeping the page anyway. |
 | `skip_planner_for_static` | `true` | Let a plainly definitional question skip the planner model entirely. The planner is the slowest step in a turn, so this removes several seconds from questions that were never going to need the web. |
 
 Scraping:

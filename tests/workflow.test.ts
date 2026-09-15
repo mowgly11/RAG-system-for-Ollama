@@ -250,9 +250,14 @@ describe("full workflow: hostile pages", () => {
         expect(judgePage(await read("/about-errors"), config.min_page_characters).usable).toBe(true);
     });
 
-    test("a long padded login wall gets through, which is the known blind spot", async () => {
-        // recorded so the tradeoff is visible rather than forgotten
-        expect(judgePage(await read("/wall-long"), config.min_page_characters).usable).toBe(true);
+    test("a login wall padded past the old ceiling is rejected", async () => {
+        // this used to get through, and was recorded as a known blind spot.
+        // The structure signal now guards real articles, so the length ceiling
+        // that let padding work is gone.
+        const verdict = judgePage(await read("/wall-long"), config.min_page_characters);
+
+        expect(verdict.usable).toBe(false);
+        if (!verdict.usable) expect(verdict.reason).toContain("sign-in or bot check");
     });
 
     test("a page that never renders yields nothing", async () => {
@@ -302,6 +307,48 @@ describe("full workflow: pages that try to talk their way out of the index", () 
     test("exactly the three articles survive", () => {
         expect(kept.length).toBe(3);
     });
+});
+
+describe("full workflow: the relevance gate in the chain", () => {
+    test("a question that matches the page keeps it without asking the model", async () => {
+        // the cheap overlap check settles this one, so no model is involved
+        const pages = await getDataFromURLs(
+            session,
+            [server.url + "/article"],
+            "how does binary search halve the range"
+        );
+
+        expect(pages.length).toBe(1);
+    }, 60000);
+
+    test("with no question there is no relevance check at all", async () => {
+        const pages = await getDataFromURLs(session, [server.url + "/article"]);
+
+        expect(pages.length).toBe(1);
+    }, 60000);
+
+    test.skipIf(ollamaReady)("with the model unavailable the gate keeps everything", async () => {
+        // a question sharing nothing with the page forces the model path, and
+        // with Ollama down the gate must fail open rather than delete sources
+        const pages = await getDataFromURLs(
+            session,
+            [server.url + "/article"],
+            "zzqq kkrr mmtt vvxx yynn"
+        );
+
+        expect(pages.length).toBe(1);
+    }, 120000);
+
+    test.skipIf(!ollamaReady)("a page about something else is dropped", async () => {
+        const pages = await getDataFromURLs(
+            session,
+            [server.url + "/article"],
+            "what were the quarterly dividend payments for utility companies"
+        );
+
+        // the page is about binary search, the question is about dividends
+        expect(pages.length).toBe(0);
+    }, 180000);
 });
 
 describe("full workflow: questions designed to mislead the router", () => {
