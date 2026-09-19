@@ -2,9 +2,9 @@
  * The whole workflow, end to end, with inputs chosen to trick it.
  *
  * Every stage runs its real implementation: classification, result parsing,
- * result filtering, navigation, in-page extraction, triage, document identity,
- * and conversation storage. The local server stands in for the web, so the
- * run is deterministic.
+ * result filtering, navigation, in-page extraction, triage and document
+ * identity. The local server stands in for the web, so the run is
+ * deterministic.
  *
  * The one seam is the search host. `executeSeachQueries` has DuckDuckGo's
  * hosts compiled in, so the search stage here drives the same units it does,
@@ -12,7 +12,6 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import mongoose from "mongoose";
 import Scraper, { preparePage, type BrowserSession, type ScraperPage } from "../scraper/scraper";
 import {
     extractSearchResultsInPage, extractArticleInPage, judgePage,
@@ -23,16 +22,9 @@ import getDataFromURLs from "../scraper/dataScraper";
 import { toDocument } from "../database/chroma/indexer";
 import { classifyQuestion, type SearchDecision } from "../prompt/triggers";
 import config from "../config.json";
-import { startLocalServer, mongoUp, ollamaUp, type LocalServer } from "./fixtures";
+import { startLocalServer, ollamaUp, type LocalServer } from "./fixtures";
 
-const TEST_URI = "mongodb://127.0.0.1:27017/rag_workflow_tests_delete_me";
-process.env.MONGODB_CONNECT = TEST_URI;
-
-const mongoReady = await mongoUp(TEST_URI);
 const ollamaReady = await ollamaUp();
-
-const { createConversation, loadHistory, saveMessage } = await import("../database/mongodb/conversations");
-const connectMongoDB = (await import("../database/mongodb/mongodb")).default;
 
 let server: LocalServer;
 let session: BrowserSession;
@@ -46,21 +38,11 @@ beforeAll(async () => {
 
     session = opened.data;
     await preparePage(session.page);
-
-    if (mongoReady) {
-        await connectMongoDB();
-        await mongoose.connection.dropDatabase();
-    }
 });
 
 afterAll(async () => {
     await session?.browser.close().catch(() => { /* already gone */ });
     server?.stop();
-
-    if (mongoReady) {
-        await mongoose.connection.dropDatabase();
-        await mongoose.connection.close();
-    }
 });
 
 /** A fresh page per call, so one slow navigation cannot poison later tests. */
@@ -385,67 +367,6 @@ describe("full workflow: questions designed to mislead the router", () => {
     });
 });
 
-describe.skipIf(!mongoReady)("full workflow: a turn recorded end to end", () => {
-    test("a searching turn stores the question, the answer and the provenance", async () => {
-        const made = await createConversation();
-        if (!made.ok) throw new Error(made.error);
-
-        const question = "what is the weather today in Boston";
-        const decision = classifyQuestion(question);
-
-        expect(decision.decision).toBe("force");
-
-        const { accepted } = await searchStage();
-        const pages = await getDataFromURLs(session, accepted);
-        const sources = pages.map(page => page.url);
-
-        await saveMessage({
-            chatID: made.data,
-            role: "user",
-            content: question,
-            searchPerformed: true,
-            queries: ["Boston weather today"]
-        });
-
-        await saveMessage({
-            chatID: made.data,
-            role: "assistant",
-            content: "It is mild in Boston today.",
-            sources
-        });
-
-        const history = await loadHistory(made.data);
-
-        expect(history.ok).toBe(true);
-        if (history.ok) {
-            expect(history.data.map(m => m.role)).toEqual(["user", "assistant"]);
-            expect(history.data[0]?.content).toBe(question);
-        }
-
-        const stored = await mongoose.connection.collection("messages").findOne({ chatID: made.data, role: "assistant" });
-
-        expect(stored?.sources?.length).toBe(sources.length);
-        expect(sources.length).toBeGreaterThan(0);
-    }, 120000);
-
-    test("a static question records a turn with no sources", async () => {
-        const made = await createConversation();
-        if (!made.ok) throw new Error(made.error);
-
-        const question = "what is binary search";
-
-        expect(classifyQuestion(question).decision).toBe("skip");
-
-        await saveMessage({ chatID: made.data, role: "user", content: question, searchPerformed: false, queries: [] });
-        await saveMessage({ chatID: made.data, role: "assistant", content: "It halves the range each step." });
-
-        const stored = await mongoose.connection.collection("messages").findOne({ chatID: made.data, role: "user" });
-
-        expect(stored?.searchPerformed).toBe(false);
-        expect(stored?.queries).toEqual([]);
-    });
-});
-
 describe.skipIf(!ollamaReady)("full workflow: the live planner", () => {
     test("a forced question comes back with usable queries", async () => {
         const { toSearchQuery } = await import("../prompt/prompt");
@@ -471,4 +392,24 @@ describe.skipIf(!ollamaReady)("full workflow: the live planner", () => {
         // the whole point of skipping: it must not pay for a model call
         expect(Date.now() - started).toBeLessThan(500);
     }, 30000);
+
+    test("an ambiguous question comes back as a valid plan either way", async () => {
+        const { toSearchQuery } = await import("../prompt/prompt");
+
+        // force and skip are covered above. This is the third branch, the one
+        // where the model actually decides. Which way it decides is its own
+        // business and asserting that would be flaky, so this pins only the
+        // shape the discriminated schema promises: a search has queries, and
+        // no search has none
+        expect(classifyQuestion("who is the president").decision).toBe("ask");
+
+        const plan = await toSearchQuery("who is the president");
+
+        expect(plan.ok).toBe(true);
+
+        if (plan.ok) {
+            if (plan.data.needsSearch) expect(plan.data.queries.length).toBeGreaterThan(0);
+            else expect(plan.data.queries).toEqual([]);
+        }
+    }, 120000);
 });

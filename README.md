@@ -21,13 +21,14 @@ Run the test suite:
 bun test
 ```
 
-The tests need Chrome, which the scraper already requires. A local server stands in for the web, so they need no network. Tests that need MongoDB, Chroma, or Ollama skip themselves when that service is not running.
+The tests need Chrome, which the scraper already requires. A local server stands in for the web, so they need no network. The suite is deliberately small and covers the logic that fails silently: page triage, result filtering, scraping, the search decision, and the relevance gate failing open. It does not cover MongoDB, `index.ts`, or debug output. The Chroma and embedding tests only run when a Chroma server and Ollama are both up, and skip otherwise. See `docs/setup.md` for what a green run does and does not prove.
 
 ## Documentation
 
 - Overview and request flow: `docs/overview.md`
 - Setup, environment variables, and configuration: `docs/setup.md`
 - Component reference: `docs/components.md`
+- Where this is going and what "done" means: `docs/roadmap.md`
 - History: `CHANGELOG.md`
 
 ## Project structure

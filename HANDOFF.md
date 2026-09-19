@@ -22,7 +22,11 @@ it could have answered without one.
 Committed through `b781776`. Roughly nineteen files are uncommitted, all of
 them the content filtering and relevance gate work described below.
 
-The full test suite passes: **269 pass, 12 skip, 0 fail**, about 80 seconds.
+The full test suite passes: **213 pass, 17 skip, 0 fail**, about 80 seconds,
+with Chroma and Ollama both down. The suite was cut down on 2026-09-18; see
+"Trimming the suite" below. `tests/chroma.test.ts` was added afterwards and is
+entirely skipped in that state: bring up `chroma run --path .chroma` and Ollama
+to actually exercise the storage path.
 
 ```bash
 bun test                 # the normal suite
@@ -133,6 +137,19 @@ file containing escapes or regexes.
   down throughout. The free half, the fail-open path, and every cheap layer are
   tested and passing. The model half is type-checked, wired and verified to
   skip, but unexercised.
+- **The Chroma tests have never been run against a live server.** They exist
+  now in `tests/chroma.test.ts`: the short-page skip, the delete-by-URL the
+  dedupe fix rests on, and a retrieval round trip. Chroma was down while they
+  were written, so only the "Chroma unreachable" case has ever executed.
+  Running them is cheap and is the next thing to do after the consistency run.
+- **Two chromadb versions are installed at once.** `package.json` pins
+  `chromadb` 3.5.0, but `@llamaindex/chroma` bundles its own 1.10.3 and that is
+  the copy `getCollection()` returns. Their types are not interchangeable: an
+  `IncludeEnum` from one is rejected where the other is expected, the same trap
+  `puppeteer-real-browser` sets. `@llamaindex/chroma` is also marked deprecated
+  by its own authors. Worth resolving before building the API on top of it.
+- **Nothing in the test suite contacts MongoDB.** The conversation store and
+  `index.ts` are untested and are exercised only by running the app.
 - A wall that gives itself enough paragraphs and headings to pass for an
   article still gets past triage. That is what the relevance gate is for, and
   it is the case that most needs live verification.
@@ -155,14 +172,49 @@ file containing escapes or regexes.
    `relevance_overlap_threshold` so the model is consulted less often, or set
    `relevance_check_enabled` to false. Do not leave a flaky judge deciding what
    gets indexed.
-3. **Run the app end to end with all three services up**, in debug mode, on a
+3. **Run `bun test tests/chroma.test.ts` with Chroma and Ollama up.** Six tests
+   that have never executed, including the one that pins the dedupe fix. They
+   use their own `rag_test_<timestamp>` collection and delete it afterwards.
+4. **Run the app end to end with all three services up**, in debug mode, on a
    question that triggers a search. Confirm the relevance gate fires, the
    timings are acceptable, and the answer improves.
-4. Consider scoping retrieval to the current turn's URLs with a metadata
+5. Consider scoping retrieval to the current turn's URLs with a metadata
    filter, rather than only widening the retrieval count.
-5. The existing Chroma collection still holds duplicate chunks from before the
+6. The existing Chroma collection still holds duplicate chunks from before the
    dedupe fix. They clear as each page is next scraped. Clearing the collection
    would give a clean baseline, but that is the user's data and their call.
+
+## Trimming the suite
+
+Done 2026-09-18, after the observation that a green suite with Ollama, Chroma
+and MongoDB all down proved almost nothing. 281 tests became 223.
+
+Deleted outright:
+
+- `tests/conversations.test.ts`, 17 tests. The MongoDB store.
+- `tests/debug.test.ts` and `tests/debugProbe.ts`, 13 tests. They spawned
+  subprocesses to assert the shape of log lines.
+- `tests/returnCreator.test.ts`, 4 tests. A six-line function whose real
+  guarantee, narrowing on `ok`, is enforced by the compiler.
+- The MongoDB block in `tests/workflow.test.ts`, 2 tests, with its imports and
+  its `beforeAll` and `afterAll` setup.
+- `mongoUp` and `chromaUp` from `tests/fixtures.ts`, both orphaned.
+
+Trimmed: `indexer.test.ts` 12 to 4, `prompt.test.ts` 7 to 3, `relevance.test.ts`
+15 to 7. In each case a handful of cases covered the behaviour and the rest
+restated it.
+
+Kept whole: `pageTriage`, `searchFilters`, `triggers`, `scraping`, `workflow`.
+These are the silent-failure surface. `relevanceConsistency.test.ts` was deleted
+and then restored: it skips on a normal run, so it was never part of the noise,
+and it is the only instrument for the largest known gap.
+
+The rule going forward: **test the logic that fails silently.** If a test cannot
+fail for a reason that would reach a user, it is not worth its maintenance.
+
+Runtime barely moved, 81s to 80s. Nearly all of it is real Chrome navigation in
+`scraping.test.ts` and `workflow.test.ts`. Trimming unit tests was about
+maintenance and honesty, not speed.
 
 ## Conventions worth keeping
 

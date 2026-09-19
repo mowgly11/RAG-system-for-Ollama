@@ -2,6 +2,48 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-09-19 (the storage path gets tests)
+
+The largest hole the previous entry left open: nothing in the suite ever
+contacted Chroma, so the dedupe fix rested on one hand measurement.
+
+### Added
+
+- **`tests/chroma.test.ts`**, the first test that contacts a real Chroma server and a real embedding model. Six live cases: the collection opens, a page under `min_page_characters` never reaches the collection, re-indexing a URL from a second `IndexBundle` (a second run, with an empty in-memory document store) leaves the chunk count unchanged, a changed page replaces its old text instead of keeping both, a question retrieves the page that answers it, and `indexDataBulk` counts every document it was handed. Two more cases run in their place when Chroma is down, asserting that `createVectorStore` and `createIndex` report the failure rather than throwing or half working.
+- **`chromaUp` is back in `tests/fixtures.ts`**, removed on 2026-09-18 for having no consumer. It now has one.
+
+### Notes
+
+- The tests index into `rag_test_<timestamp>`, set by overriding `VECTOR_STORE_COLLECTION_NAME` before `env.ts` is imported, and delete that collection afterwards. A test run cannot touch the collection the app uses.
+- **The six live cases have never executed.** Chroma was down while they were written, the same way Ollama was down while the relevance gate was written. They type-check and they skip correctly; that is all that is proven so far.
+- A run with both services down is now 213 pass, 17 skip, 0 fail in about 80 seconds. The new skips are this file's three live tests plus the setup hooks bun counts alongside them, and one added live-planner test in `tests/workflow.test.ts`.
+- **None of the live Chroma tests have ever executed.** Neither Chroma nor Ollama has been up since they were written, so they are type-checked and reviewed but unproven. Expect to correct them on their first real run.
+
+## [Unreleased] - 2026-09-18 (a smaller test suite)
+
+The suite passed with Ollama, Chroma and MongoDB all switched off, which said
+more about the tests than about the code. 281 tests became 223, and the docs
+now state plainly what a green run does and does not prove.
+
+### Removed
+
+- **`tests/conversations.test.ts`** (17 tests) and the MongoDB block in `tests/workflow.test.ts` (2 tests), along with the mongoose imports and the database setup and teardown those needed.
+- **`tests/debug.test.ts` and `tests/debugProbe.ts`** (13 tests). They spawned a subprocess per case to assert the shape of a log line. Debug output is print formatting, and a wrong line is visible the moment you read it.
+- **`tests/returnCreator.test.ts`** (4 tests). `returnCreator` is six lines, and its real guarantee, that checking `ok` narrows `data`, is enforced by the compiler rather than at runtime.
+- **`mongoUp` and `chromaUp` from `tests/fixtures.ts`**. `chromaUp` had never been imported by anything, which is why no test ever skipped for Chroma: none contacted it in the first place.
+- Redundant cases in three unit files: `indexer.test.ts` 12 to 4, `prompt.test.ts` 7 to 3, `relevance.test.ts` 15 to 7. The remaining cases cover the same behaviour; the ones removed restated it from another angle.
+
+Kept whole: `pageTriage`, `searchFilters`, `triggers`, `scraping` and `workflow`. Those cover the logic that fails silently, where a regression poisons the index or deletes a source without anyone being told. `relevanceConsistency.test.ts` was kept too. It skips on a normal run, so it was never part of the noise, and it remains the only instrument for measuring the judge.
+
+### Changed
+
+- **The documented rule for what deserves a test.** Test the logic that fails silently. A test that cannot fail for a reason that would reach a user is not worth its maintenance.
+- `README.md`, `docs/setup.md`, `docs/components.md` and `HANDOFF.md` now say which components have no coverage at all: Chroma, MongoDB, `index.ts` and `utils/debug.ts`. They previously claimed tests skipped when Chroma was unreachable, which was never true.
+
+### Notes
+
+- Runtime went from about 81 seconds to about 80. Nearly all of it is real Chrome navigation in `scraping.test.ts` and `workflow.test.ts`, so trimming unit tests was never going to buy speed. This was about maintenance and about the suite telling the truth.
+
 ## [Unreleased] - 2026-09-16 (content filtering and a relevance gate)
 
 Four free checks and one paid one, ordered cheapest first so the model is

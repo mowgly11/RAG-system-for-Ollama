@@ -119,9 +119,9 @@ The planner uses its own Ollama client pointed at `OLLAMA_HOST`, rather than the
 
 ## Tests
 
-- `tests/fixtures.ts`: The local HTTP server that stands in for the web, plus the probes that let a suite skip when MongoDB, Chroma, or Ollama is not running. Its pages are deliberately hostile. See `docs/setup.md` for the list.
-- `tests/*.test.ts`: One file per workflow step, plus `workflow.test.ts` for the whole chain under adversarial input.
-- `tests/debugProbe.ts`: Run as a subprocess by the debug tests, because the debug flag is read once at import and a single process cannot observe it both ways.
+- `tests/fixtures.ts`: The local HTTP server that stands in for the web, plus `ollamaUp` and `chromaUp`, the probes that let the live-service tests skip when Ollama or a Chroma server is not running. Its pages are deliberately hostile. See `docs/setup.md` for the list.
+- `tests/*.test.ts`: One file per workflow step, plus `workflow.test.ts` for the whole chain under adversarial input. The suite covers the logic that fails silently. It does not cover MongoDB, `index.ts`, or `utils/debug.ts`; see `docs/setup.md` for what a green run does and does not prove.
+- `tests/chroma.test.ts`: The only test that contacts Chroma and the embedding model. It indexes into a collection named `rag_test_<timestamp>`, set by overriding `VECTOR_STORE_COLLECTION_NAME` before `env.ts` is imported, and deletes that collection afterwards, so a test run can never touch the collection the app uses. That override only works because nothing imports `env.ts` before it: bun shares one module registry across test files, so the setup checks the collection name it actually got and refuses to run if some other file loaded `env.ts` first. Every test in it skips unless both services are up.
 - `tests/relevanceProbe.ts`: Run as a subprocess by the relevance tests, for the same reason. The Ollama client is built once at import, so a single process cannot see both a working host and a dead one.
 - `tests/relevanceConsistency.test.ts`: Measures how much the judge agrees with itself. Opt in with `bun run test:consistency`, since it needs Ollama and takes minutes. Every check is a rate over repeated runs, because asserting that a model always answers X produces a flaky test.
 - `termOverlap` and `judgeRelevance` are exported from `prompt/relevance.ts` so each half of the gate can be tested on its own.

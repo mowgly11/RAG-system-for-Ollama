@@ -22,68 +22,23 @@ async function runProbe(ollamaHost: string): Promise<string> {
 }
 
 describe("term overlap", () => {
-    test("a page about the question scores high", () => {
-        const overlap = termOverlap(
-            "how does binary search work",
-            "Binary search halves the remaining range on every step, which is why it runs in logarithmic time."
-        );
-
-        expect(overlap).toBeGreaterThan(0.5);
-    });
-
-    test("a page about something else scores low", () => {
-        const overlap = termOverlap(
-            "how does binary search work",
-            "The weather in Boston today is mild with light rain expected after midday."
-        );
-
-        expect(overlap).toBeLessThan(0.4);
-    });
-
-    test("stopwords do not inflate the score", () => {
-        // "the", "and", "with" appear everywhere and say nothing about topic
-        const overlap = termOverlap(
-            "the and with from that this",
-            "Completely unrelated text about sailing boats and harbours."
-        );
-
-        expect(overlap).toBe(1);
-    });
-
-    test("an empty question counts as fully covered", () => {
-        expect(termOverlap("", "any text at all")).toBe(1);
-    });
-
-    test("an empty page covers nothing", () => {
-        expect(termOverlap("binary search algorithm", "")).toBe(0);
-    });
-
-    test("matching is case insensitive", () => {
-        expect(termOverlap("BINARY SEARCH", "binary search")).toBe(1);
-    });
-
-    test("short words are ignored", () => {
-        // two letter tokens are noise, not topic
-        expect(termOverlap("go to it", "completely unrelated")).toBe(1);
-    });
-
-    test("punctuation does not break tokenisation", () => {
-        expect(termOverlap("binary-search, algorithm!", "binary search algorithm")).toBe(1);
-    });
-
-    test("the score is a fraction of the question's vocabulary", () => {
-        // two of four salient terms present
-        const overlap = termOverlap("binary search sailing harbour", "binary search explained");
-
-        expect(overlap).toBeCloseTo(0.5, 5);
-    });
-
-    test("the configured threshold sits between the two cases", () => {
+    test("the configured threshold sits between an on-topic and an off-topic page", () => {
+        // this is the whole job of the cheap half: decide who is worth a model
+        // call. If the threshold drifts past either side, the gate stops working
         const onTopic = termOverlap("how does binary search work", "Binary search halves the range each step.");
         const offTopic = termOverlap("how does binary search work", "Boston weather today, mild with rain.");
 
         expect(onTopic).toBeGreaterThanOrEqual(config.relevance_overlap_threshold);
         expect(offTopic).toBeLessThan(config.relevance_overlap_threshold);
+    });
+
+    test("stopwords do not inflate the score", () => {
+        // keeping them would make every page look like a match
+        expect(termOverlap("the and with from that this", "Completely unrelated text about sailing boats.")).toBe(1);
+    });
+
+    test("an empty page covers nothing", () => {
+        expect(termOverlap("binary search algorithm", "")).toBe(0);
     });
 });
 

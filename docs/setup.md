@@ -54,27 +54,40 @@ The app then prompts `What is your question:` in a loop. Type `exit` or `quit`, 
 bun test
 ```
 
-Chrome is the only hard requirement, and the scraper already needs it. A local HTTP server stands in for the web, so the suite is deterministic and works offline. Tests that need a service skip themselves when it is not running, and say so rather than failing.
+Chrome is the only hard requirement, and the scraper already needs it. A local HTTP server stands in for the web, so the suite is deterministic and works offline. The tests that need Ollama or a Chroma server skip themselves when those are not running.
+
+The suite is deliberately small. It covers the logic that fails silently: bad pages reaching the index, a result URL unwrapped wrong, a source deleted by a confused judge. Tests that only restated the type system or asserted the shape of a log line were removed rather than maintained.
 
 | File | Covers |
 | --- | --- |
-| `tests/returnCreator.test.ts` | The result union, including that checking `ok` narrows the payload. |
 | `tests/triggers.test.ts` | The search decision: the three verdicts, whole-word matching, scoring, pasted links, and hostile input. |
 | `tests/pageTriage.test.ts` | `judgePage`, including the phrases that must not reject a real article, and the structure rules that outrank them. |
 | `tests/searchFilters.test.ts` | Link unwrapping and the filters that reject a result before it costs a page load. |
-| `tests/prompt.test.ts` | Template loading, substitution, and a missing or traversing path. |
-| `tests/indexer.test.ts` | Document identity, so one page cannot become several documents. |
+| `tests/prompt.test.ts` | A missing template, a traversing path, and that the planner prompts name the fields the schema requires. |
+| `tests/indexer.test.ts` | Document identity, so one page cannot become several documents. Covers `toDocument` only, which never contacts Chroma. |
+| `tests/chroma.test.ts` | The live storage path against a real Chroma server and a real embedding model: the short-page skip, the dedupe on re-index, and a retrieval round trip. Falls back to asserting the failure path when Chroma is down. |
 | `tests/scraping.test.ts` | Navigation and extraction in a real browser: status codes, content types, the wait for client rendered pages, and result parsing. |
 | `tests/relevance.test.ts` | Term overlap, and that the gate fails open when the model is unreachable. |
-| `tests/conversations.test.ts` | The MongoDB store, including injection-shaped input. Needs MongoDB. |
 | `tests/workflow.test.ts` | The whole chain end to end against hostile pages and misleading questions. |
+| `tests/relevanceConsistency.test.ts` | How much the judge agrees with itself. Opt in, needs Ollama. Skipped by a normal run. |
 | `tests/fixtures.ts` | The local server and its pages. Not a test file. |
 
 Some of those pages exist to attack the triage from both sides. A troubleshooting article titled "403 Forbidden: 9 Ways to Fix It" must be indexed. An article that deliberately opens with "Access denied. Page not found." to repel scrapers must also be indexed. A genuine error page or login wall given one heading to look structured must still be rejected.
 
 The fixture server serves pages built to break things: a soft 404 returned as HTTP 200, an error body under a friendly title, a login wall, a login wall padded long enough to slip past the wall check, a page whose article is buried in wrapper divs, hidden keyword stuffing, a page that renders only after a delay, a shell that never renders, a page far past the size cap, and a results page seeded with sponsored rows, `javascript:` links and sign-in-wall domains.
 
-Twelve tests skip on a machine with only MongoDB running: the live planner, the live relevance gate, and the consistency suite all need Ollama.
+With Chroma and Ollama both down, a full run is 213 pass, 17 skip, 0 fail, in about 80 seconds. Almost all of that time is real Chrome navigation in `tests/scraping.test.ts` and `tests/workflow.test.ts`. Of the 17 skips, 8 are the opt-in consistency suite, 4 are the live planner and live relevance gate, and the rest are the three live Chroma tests plus the setup hooks bun counts alongside them. Bring the services up and the numbers move the other way: the live tests run and the "Chroma unreachable" test skips instead.
+
+### What the suite does not verify
+
+A green run proves the scraping and filtering half works. What it proves about the rest depends on which services were up.
+
+- **Chroma is only contacted when a server is listening on port 8000.** `tests/chroma.test.ts` covers the `min_page_characters` skip, the delete-by-URL that stops a re-scraped page from stacking duplicate chunks, and an embed-store-retrieve round trip. All three skip when Chroma or Ollama is down, which is also when the rest of the suite is at its greenest. A run with both services down still says nothing about the storage path. **Those three tests have never executed**, because neither service has been up since they were written.
+- **MongoDB is never contacted.** The conversation store has no tests. `createConversation`, `listConversations`, `loadHistory` and `saveMessage` are exercised only by running the app.
+- **Four model tests live in `tests/workflow.test.ts`**: the live planner on a forced question, on an ambiguous one, the static path that must not call the model, and the relevance gate dropping an off-topic page. With Ollama down they skip and one runs in their place, asserting that the gate fails open. The embedding model is only reached from `tests/chroma.test.ts`, which needs Chroma too.
+- **The answering LLM is never called by a test.** Nothing checks that `index.ts` points it at `OLLAMA_HOST`, or that the chat engine is rebuilt with the wider retrieval count after a search.
+- **`index.ts` has no tests.** The chat loop, the conversation picker, source gathering and history capping are exercised only by running the app.
+- **Debug output has no tests.** `utils/debug.ts` is print formatting; a wrong line is visible the moment you read it.
 
 ### Judge consistency
 

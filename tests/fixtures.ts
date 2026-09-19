@@ -325,7 +325,7 @@ export function startLocalServer(): LocalServer {
 }
 
 // ---------------------------------------------------------------------------
-// service probes, so tests that need a server skip instead of failing
+// service probe, so the tests that need Ollama skip instead of failing
 // ---------------------------------------------------------------------------
 
 async function reachable(url: string): Promise<boolean> {
@@ -337,16 +337,8 @@ async function reachable(url: string): Promise<boolean> {
     }
 }
 
-export async function mongoUp(uri: string): Promise<boolean> {
-    try {
-        const mongoose = (await import("mongoose")).default;
-        await mongoose.connect(uri, { serverSelectionTimeoutMS: 2500 });
-        await mongoose.connection.close();
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-export const chromaUp = () => reachable("http://localhost:8000/api/v2/heartbeat");
 export const ollamaUp = () => reachable("http://127.0.0.1:11434/api/tags");
+
+// the default the JS Chroma client talks to, which is what `createVectorStore`
+// uses since it passes no client parameters
+export const chromaUp = () => reachable("http://127.0.0.1:8000/api/v2/heartbeat");
