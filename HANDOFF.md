@@ -1,6 +1,7 @@
 # Handoff
 
-Written 2026-09-16. Read this before touching the scraping or search path.
+Written 2026-09-16, last updated 2026-09-22. Read this before touching the
+scraping or search path, and read `docs/roadmap.md` before adding anything new.
 
 ## Goal
 
@@ -19,14 +20,21 @@ it could have answered without one.
 
 ## Current progress
 
-Committed through `b781776`. Roughly nineteen files are uncommitted, all of
-them the content filtering and relevance gate work described below.
+Committed through `b894f51`. Only `CLAUDE.md` is modified in the working tree,
+a doc correction made after that commit.
 
-The full test suite passes: **213 pass, 17 skip, 0 fail**, about 80 seconds,
-with Chroma and Ollama both down. The suite was cut down on 2026-09-18; see
-"Trimming the suite" below. `tests/chroma.test.ts` was added afterwards and is
-entirely skipped in that state: bring up `chroma run --path .chroma` and Ollama
-to actually exercise the storage path.
+The full test suite passes: **213 pass, 17 skip, 0 fail** out of 230, about 85
+seconds, with Chroma and Ollama both down and MongoDB up. The suite was cut
+down on 2026-09-18 and Chroma coverage added on 2026-09-19; see "Trimming the
+suite" and "Adding Chroma coverage" below. Bring up `chroma run --path .chroma`
+and Ollama to actually exercise the storage path.
+
+**`docs/roadmap.md` is new** and is the most important thing to read before
+building anything. It records the target: a callable pipeline, model
+agnosticism across Ollama, an HTTP API, and streaming, plus a 14-point
+definition of done. **One of those 14 is currently met.** The order of work
+there is not arbitrary; item 1, extracting `answerQuestion` out of `main()`,
+blocks the API, streaming, and any test of the answering path.
 
 ```bash
 bun test                 # the normal suite
@@ -92,6 +100,13 @@ can serve deliberately hostile pages. This is why the suite is trustworthy.
 **Running the app instead of only reading it.** Two real crashes were found
 that way: a mongoose import that Bun does not support, and `ERR_USE_AFTER_CLOSE`
 when input ended.
+
+**Reviewing generated tests instead of trusting them.** A subagent produced
+eight Chroma tests. Four survived review. One could only ever pass, because the
+`beforeAll` it depended on already threw on the same failure. Two others tested
+the same path twice. The review also caught that the agent had verified its API
+assumptions against the wrong copy of `chromadb`, which is how the two-version
+problem below was found at all. Generated tests are a draft.
 
 ## What did not work
 
@@ -172,15 +187,25 @@ file containing escapes or regexes.
    `relevance_overlap_threshold` so the model is consulted less often, or set
    `relevance_check_enabled` to false. Do not leave a flaky judge deciding what
    gets indexed.
-3. **Run `bun test tests/chroma.test.ts` with Chroma and Ollama up.** Six tests
-   that have never executed, including the one that pins the dedupe fix. They
-   use their own `rag_test_<timestamp>` collection and delete it afterwards.
+3. **Run `bun test tests/chroma.test.ts` with Chroma and Ollama up.** Three
+   live tests that have never executed, including the one that pins the dedupe
+   fix. They use their own `rag_test_<timestamp>` collection and delete it
+   afterwards. Two runtime assumptions could not be settled statically and may
+   need a one-line fix on first run: whether `collection.get()` returns
+   `documents` without an explicit `include`, and whether the top-level
+   `ChromaClient` 3.5.0 used in `afterAll` can delete a collection on the same
+   server the bundled 1.10.3 client wrote to.
 4. **Run the app end to end with all three services up**, in debug mode, on a
    question that triggers a search. Confirm the relevance gate fires, the
    timings are acceptable, and the answer improves.
-5. Consider scoping retrieval to the current turn's URLs with a metadata
-   filter, rather than only widening the retrieval count.
-6. The existing Chroma collection still holds duplicate chunks from before the
+5. **Extract `answerQuestion` from `main()`.** `index.ts` lines 167 to 289 do
+   readline, the conversation picker, the turn loop, chat engine construction
+   and printing in one function, so there is no seam to call. Roadmap item 1,
+   and four other things sit behind it.
+6. Scope retrieval to the current turn's URLs with a metadata filter, rather
+   than only widening the retrieval count. The installed llamaindex retriever
+   accepts `preFilters?: MetadataFilters`, so this needs no new dependency.
+7. The existing Chroma collection still holds duplicate chunks from before the
    dedupe fix. They clear as each page is next scraped. Clearing the collection
    would give a clean baseline, but that is the user's data and their call.
 
@@ -215,6 +240,37 @@ fail for a reason that would reach a user, it is not worth its maintenance.
 Runtime barely moved, 81s to 80s. Nearly all of it is real Chrome navigation in
 `scraping.test.ts` and `workflow.test.ts`. Trimming unit tests was about
 maintenance and honesty, not speed.
+
+## Adding Chroma coverage
+
+Done 2026-09-19, applying the same rule the trim established. 223 tests became
+230.
+
+`tests/chroma.test.ts` is new and is the only test that contacts Chroma or the
+embedding model. Four tests survived review out of eight drafted:
+
+- the `min_page_characters` skip
+- **re-indexing a URL replaces it instead of adding a copy**, which is the
+  dedupe fix and the single most valuable test in the file
+- an embed, store, retrieve round trip
+- `createIndex` reporting failure rather than throwing when Chroma is down,
+  the only one of the four that runs offline
+
+Cut during review: a test whose `beforeAll` already asserted the same thing, a
+text-replacement test folded into the dedupe test, a bulk-counting test whose
+failure mode is a wrong console number, and a duplicate of the failure path.
+
+One test was added to `tests/workflow.test.ts`: the planner's `ask` branch,
+which neither existing live test covered. It asserts only the schema contract,
+a search has queries and a no-search has none, because asserting which way the
+model decides is exactly the flakiness `relevanceConsistency.test.ts` handles
+with rates instead.
+
+The file writes to a `rag_test_<timestamp>` collection and deletes it in
+`afterAll`. That isolation depends on `env.ts` not being imported by another
+test file first, since bun shares one module registry, so the setup checks the
+collection name it actually got and refuses to run rather than writing into the
+app's real `rag_store`.
 
 ## Conventions worth keeping
 

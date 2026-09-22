@@ -10,7 +10,7 @@ bun run start            # interactive chat loop (index.ts)
 bun test                 # full suite, --timeout 30000 is required, not optional
 bun test tests/triggers.test.ts        # one file
 bun test -t "fails open"               # one test by name
-bun run test:consistency # opt in, needs Ollama, takes minutes
+bun run test:consistency # opt in, needs Ollama, takes minutes; REPEATS=9 widens the sample
 DEBUG_MODE=true bun run start          # per-step trace with timings
 ```
 
@@ -93,6 +93,12 @@ Conversation messages are never written to Chroma: the chat engine retrieves fro
 collection on every question, so storing replies there feeds the model its own output
 back as if it were a source. Keep that separation.
 
+The index's own document store lives in memory and starts empty on every run, so
+its hash check only dedupes a page two search queries both returned in the same
+turn. Across runs, nothing but the delete-by-URL in `dropExistingChunks` stops a
+re-scrape stacking a second copy of the page. Indexing is sequential for the same
+reason: concurrent deletes against one collection race.
+
 ### The four page filters, cheapest first
 
 Element removal, then line-level boilerplate filtering, then `judgePage` triage
@@ -125,6 +131,9 @@ would arrive.
   boundaries and do not return bare values from anything that can fail.
 - **Tunables go in `config.json`**, hosts and secrets in `.env` via `env.ts` (`zod`
   validated). Do not hardcode either.
+  Every key in `env.ts` has a default, so a missing `.env` starts the app against
+  localhost rather than failing. A wrong host shows up as a connection error, not a
+  validation one.
 - **Prompts go in `prompt/prompts/*.txt`**, loaded by name through `getPrompt`, so they
   can be edited without touching code.
 - Use `z.stringbool()` for env booleans. `z.coerce.boolean()` reads the string `"false"`
