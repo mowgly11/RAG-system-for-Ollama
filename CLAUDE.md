@@ -39,15 +39,19 @@ relevance gate failing open, and the whole chain end to end against hostile fixt
 
 **Not covered. A green run says nothing about any of these:**
 
-- **Chroma, unless a server is up.** `tests/chroma.test.ts` covers `createVectorStore`,
-  `createIndex`, `indexData`, `indexDataBulk` and the delete-by-URL that `indexData`
-  relies on, but it needs both a Chroma server and Ollama and skips entirely without
-  them. Offline, only its two "Chroma unreachable" cases run.
+- **Chroma, unless a server is up.** `tests/chroma.test.ts` has three live tests: the
+  `min_page_characters` skip, the delete-by-URL that stops a re-scrape stacking
+  duplicate chunks, and an embed-store-retrieve round trip. All three need Chroma and
+  Ollama and skip without them. Offline, only its one "Chroma unreachable" case runs.
+  **None of the three have ever executed**, so they are reviewed and type-checked but
+  unproven.
 - **MongoDB.** No test contacts it. The conversation store is exercised only by running
   the app.
-- **The live model paths.** Three tests in `tests/workflow.test.ts` need Ollama. With
-  Ollama down they skip and a fourth runs in their place asserting the gate fails open,
-  so the suite is at its greenest when no model is reachable.
+- **The live model paths.** Four tests in `tests/workflow.test.ts` need Ollama: the
+  planner on a forced question, on an ambiguous one, the static path that must not call
+  the model, and the gate dropping an off-topic page. With Ollama down they skip and one
+  runs in their place asserting the gate fails open, so the suite is at its greenest
+  when no model is reachable.
 - **`index.ts`.** The chat loop, `pickConversation`, `gatherSources`, `toText` and
   history capping.
 - **`utils/debug.ts`.** Print formatting; a wrong line is visible the moment you read it.
